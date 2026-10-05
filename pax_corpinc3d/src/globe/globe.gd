@@ -12,6 +12,7 @@ extends Node
 const BODY := "Земля"
 const REF_M := 100.0
 const CITY_DEG := 0.5
+const AFTER_INTRO := 3.0            # seconds after the game's opening flight before anything is built
 
 var mod: PaxMod
 var photo: Object                   # photo.gd: which model a site gets (model_for)
@@ -36,6 +37,9 @@ var _count := 0
 var _map_was := false
 var _center := Vector2.INF          # (latitude, longitude) the map showed last
 var _turn := {}                     # {target, start, applied, wait}
+# The game's opening flight to the player's country (Main.заставка): nothing is loaded, built or turned while it runs
+# and for AFTER_INTRO seconds after — the heavy models loaded in the middle of the flight crashed the game.
+var _calm := AFTER_INTRO
 
 
 func setup(m: PaxMod, ph: Object) -> void:
@@ -56,6 +60,8 @@ func start(g: PaxGame) -> void:
 	clear()
 	game = g
 	_ver = -1
+	_calm = AFTER_INTRO
+	_turn = {}
 
 
 func clear() -> void:
@@ -74,6 +80,15 @@ func _api() -> Object:
 
 func _process(delta: float) -> void:
 	if game == null or not is_instance_valid(game.main):
+		return
+	if _intro():
+		_calm = AFTER_INTRO
+		_turn = {}
+		if is_instance_valid(_holder):
+			_holder.visible = false
+		return
+	if _calm > 0.0:
+		_calm -= delta
 		return
 	var api := _api()
 	var mapv: Variant = game.main.get("полит_карта")
@@ -98,9 +113,14 @@ func _process(delta: float) -> void:
 	_t += delta
 	var ver := int(api.call("sites_version"))
 	if ver != _ver and _t >= 0.5:
-		_t = 0.0
-		_ver = ver
-		_build(api)
+		if _build(api):
+			_t = 0.0
+			_ver = ver
+
+
+## The game's opening flight is on the screen.
+func _intro() -> bool:
+	return is_instance_valid(game.main.get("заставка"))
 
 
 ## The buildings are shown now (the auto quality measures the frames only then).
@@ -144,22 +164,34 @@ func _pick(sites: Array) -> Array:
 
 
 ## The sites from Pax Corporations as cities; every building placed once (the size never changes).
-func _build(api: Object) -> void:
+## false — not built yet: a model was loaded this frame (one a frame, so the game never freezes on all of them).
+func _build(api: Object) -> bool:
+	var sites: Array = []
+	for r in _pick(api.call("sites_3d") as Array):
+		var d: Dictionary = r
+		var lat := float(d.get("lat", NAN))
+		var lon := float(d.get("lon", NAN))
+		if not is_finite(lat) or not is_finite(lon):
+			continue
+		var id := str(photo.call("model_for", str(d.get("k", "")), str(d.get("f", "")), str(d.get("s", ""))))
+		if id.is_empty():
+			id = "office"   # every company stands somewhere: no own model — an office
+		if not _meshes.has(id):
+			_mesh(id)
+			return false
+		sites.append([id, lat, lon])
 	for mi in _mm.values():
 		if is_instance_valid(mi):
 			(mi as Node).queue_free()
 	_mm.clear()
 	_fit_convention()
 	var cities := {}
-	for r in _pick(api.call("sites_3d") as Array):
-		var d: Dictionary = r
-		var id := str(photo.call("model_for", str(d.get("k", "")), str(d.get("f", "")), str(d.get("s", ""))))
-		if id.is_empty():
-			id = "office"   # every company stands somewhere: no own model — an office
+	for site in sites:
+		var id: String = site[0]
 		if not _mesh(id):
 			continue
-		var lat := float(d["lat"])
-		var lon := float(d["lon"])
+		var lat: float = site[1]
+		var lon: float = site[2]
 		var key := "%d|%d" % [roundi(lat / CITY_DEG), roundi(lon / CITY_DEG)]
 		if not cities.has(key):
 			cities[key] = {"lat": 0.0, "lon": 0.0, "list": []}
@@ -217,6 +249,7 @@ func _build(api: Object) -> void:
 		_mm[id] = mi
 		_count += xfs.size()
 	mod.log_info("3D globe: %d buildings in %d cities, %d models" % [_count, cities.size(), _mm.size()])
+	return true
 
 
 ## The cells of a square grid from the middle outwards: the first is the centre.

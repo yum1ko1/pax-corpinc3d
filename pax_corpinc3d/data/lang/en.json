@@ -89,6 +89,8 @@
 	"pax_corpinc3d_now": "Now: %d FPS · buildings on the Earth: %d",
 	"pax_corpinc3d_now_auto": "Mode lowered automatically: %s",
 	"pax_corpinc3d_auto_lowered": "3D buildings: the game lagged — the mode is lowered to «%s». Bring it back in the «3D» window.",
+	"pax_corpinc3d_whatsnew_0_2_6_title": "no crash in the opening flight",
+	"pax_corpinc3d_whatsnew_0_2_6": "• The game no longer crashes during the opening flight to your country: while it runs, the 3D buildings are not loaded or built and the camera is not turned; afterwards the models load one per frame, without a long freeze.",
 	"pax_corpinc3d_whatsnew_0_2_5_title": "3D settings for weak PCs",
 	"pax_corpinc3d_whatsnew_0_2_5": "• The «3D» window is now settings: modes Off / Economy / Normal / Maximum and custom — how many buildings, headquarters only, shadows, hide when far.\n• «Lower by itself»: if the game stays below the chosen FPS, the mode drops a step (with a notification).\n• The window shows the current FPS and buildings on the Earth. Console: inc3d eco | normal | max | off."
 }
