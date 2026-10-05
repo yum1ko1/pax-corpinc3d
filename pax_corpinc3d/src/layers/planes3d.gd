@@ -1,10 +1,12 @@
 extends Node3D
-## Airliners on the 3D globe: white jets (a model made here — fuselage, swept wings, tail, engines), many times larger
-## than life so they are seen from the overview height (config/earth.json «planes»: wingspan plane_km).
-##   on the game's air routes (the political map's caravans of the kind «самолёт» and its flights): per_route jets fly
-##   each route there and back, along the same arc the dashed line of the route draws (lift);
-##   in the sky for the sky's sake: «ambient» jets between the world's big cities (config/cities.json).
-## They were a white dot on the 2D overlay — players did not read it as a plane.
+## Airliners on the 3D globe: white jets (a model made here — fuselage, swept wings, tail, engines) that fly between
+## real airports (airports3d.gd, config/airports.json): the take-off run along the runway's real heading, the climb,
+## the great circle at cruise height, the approach lined up with the destination's runway, the touchdown and the roll,
+## a while at the airport, then the way back. Larger than life (config/earth.json «planes»: wingspan plane_km at
+## cruise, land_km on the ground — they grow as they climb, so a jet fits its runway and is still seen from orbit).
+##   on the game's air routes (the political map's caravans of the kind «самолёт» and its flights): each end goes to
+##   the nearest airport (within snap_deg), per_route jets a route;
+##   in the sky for the sky's sake: «ambient» jets between the world's large airports.
 ## Shown below show_below_km of the camera's height. Lives in the Earth's node (its own space, radius 1), like the
 ## roads, the armies and the ships.
 
@@ -13,45 +15,52 @@ const EARTH_KM := 6371.0
 
 var mod: PaxMod
 var cfg: Dictionary = {}
+var airports: Object                # airports3d.gd
 var _planes: MultiMeshInstance3D
 var _mesh: ArrayMesh
-var _routes: Array = []            # [{a: Vector3, b: Vector3, ang: float}] — the game's
-var _ambient: Array = []           # the same between big cities
+var _routes: Array = []            # the game's: [{ab: Path, ba: Path, phase}]
+var _ambient: Array = []           # between large airports
 var _sig := ""
 var _time := 0.0
+var _ambient_done := false
+var _air_ver := -1
 
 
-func setup(m: PaxMod, planes_cfg: Dictionary) -> void:
+## A flight's way: directions (unit), heights over the ground (Earth radii), the angle walked so far at each point.
+class Path extends RefCounted:
+	var pts := PackedVector3Array()
+	var alt := PackedFloat32Array()
+	var ground := PackedFloat32Array()
+	var cum := PackedFloat32Array()
+	var total := 0.0
+
+
+func setup(m: PaxMod, planes_cfg: Dictionary, airports_node: Object) -> void:
 	mod = m
 	cfg = planes_cfg
+	airports = airports_node
 	name = "PaxCorpInc3DPlanes"
 	_mesh = _airliner()
-	var raw: Variant = GameApi.json(m, "config/cities.json", {})
+
+
+func _make_ambient() -> void:
+	_ambient_done = true
 	var big: Array = []
-	for row in ((raw as Dictionary).get("cities", []) if raw is Dictionary else []):
-		var r: Array = row
-		if r.size() >= 3:
-			big.append([float(r[2]), _ll(float(r[0]), float(r[1]))])
-	big.sort_custom(func(x: Array, y: Array) -> bool: return float(x[0]) > float(y[0]))
-	big = big.slice(0, 80)
+	for a in (airports.get("list") as Array):
+		if bool((a as Dictionary)["large"]):
+			big.append(a)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 7171
-	var want := int(cfg.get("ambient", 40))
+	var want := int(cfg.get("ambient", 60))
 	var tries := 0
-	while _ambient.size() < want and big.size() >= 2 and tries < want * 40:
+	while _ambient.size() < want and big.size() >= 2 and tries < want * 60:
 		tries += 1
-		var a: Vector3 = (big[rng.randi() % big.size()] as Array)[1]
-		var b: Vector3 = (big[rng.randi() % big.size()] as Array)[1]
-		var ang := a.angle_to(b)
-		if ang < deg_to_rad(12.0) or ang > deg_to_rad(110.0):
+		var a: Dictionary = big[rng.randi() % big.size()]
+		var b: Dictionary = big[rng.randi() % big.size()]
+		var ang := (a["d"] as Vector3).angle_to(b["d"] as Vector3)
+		if ang < deg_to_rad(6.0) or ang > deg_to_rad(80.0):
 			continue
-		_ambient.append({"a": a, "b": b, "ang": ang, "phase": rng.randf()})
-
-
-static func _ll(lat: float, lon: float) -> Vector3:
-	var p := deg_to_rad(lat)
-	var l := deg_to_rad(lon)
-	return Vector3(cos(p) * sin(l), sin(p), cos(p) * cos(l))
+		_ambient.append({"ab": _path(a, b), "ba": _path(b, a), "phase": rng.randf()})
 
 
 static func _dir(uv: Vector2) -> Vector3:
@@ -60,25 +69,118 @@ static func _dir(uv: Vector2) -> Vector3:
 	return Vector3(cos(lat) * sin(lon), sin(lat), cos(lat) * cos(lon))
 
 
-## The game's air routes: [[from uv, to uv]…] (rebuilt only when they change).
+## The game's air routes: [[from uv, to uv]…] (rebuilt only when they change). Each end lands on its nearest airport.
 func set_routes(pairs: Array) -> void:
+	if airports == null:
+		return
+	airports.call("ensure")
+	var ver := int(airports.get("version"))
+	if ver != _air_ver:
+		# The runways' heights are known (or changed): every way laid again on them.
+		_air_ver = ver
+		_ambient.clear()
+		_ambient_done = false
+		_sig = "-"
+	if not _ambient_done:
+		_make_ambient()
+		_make()
 	var sig := ""
-	var routes: Array = []
 	for pr in pairs:
-		if not (pr is Array) or (pr as Array).size() < 2 or not ((pr as Array)[0] is Vector2) or not ((pr as Array)[1] is Vector2):
-			continue
-		var a := _dir((pr as Array)[0])
-		var b := _dir((pr as Array)[1])
-		var ang := a.angle_to(b)
-		if ang < 0.002:
-			continue
-		sig += "%.3f,%.3f,%.3f,%.3f;" % [(pr as Array)[0].x, (pr as Array)[0].y, (pr as Array)[1].x, (pr as Array)[1].y]
-		routes.append({"a": a, "b": b, "ang": ang, "phase": float(absi(hash(sig)) % 1000) / 1000.0})
+		if pr is Array and (pr as Array).size() >= 2 and (pr as Array)[0] is Vector2 and (pr as Array)[1] is Vector2:
+			sig += "%.3f,%.3f,%.3f,%.3f;" % [(pr as Array)[0].x, (pr as Array)[0].y, (pr as Array)[1].x, (pr as Array)[1].y]
 	if sig == _sig and is_instance_valid(_planes):
 		return
 	_sig = sig
-	_routes = routes
+	_routes.clear()
+	var snap := float(cfg.get("snap_deg", 4.0))
+	for pr in pairs:
+		if not (pr is Array) or (pr as Array).size() < 2 or not ((pr as Array)[0] is Vector2) or not ((pr as Array)[1] is Vector2):
+			continue
+		var da := _dir((pr as Array)[0])
+		var db := _dir((pr as Array)[1])
+		var a := _airport_at(da, db, snap)
+		var b := _airport_at(db, da, snap)
+		if (a["d"] as Vector3).angle_to(b["d"] as Vector3) < deg_to_rad(1.0):
+			continue
+		_routes.append({"ab": _path(a, b), "ba": _path(b, a), "phase": float(absi(hash(str(pr))) % 1000) / 1000.0})
 	_make()
+
+
+## The real airport nearest to a route's end; none near — a runway made up there, facing the other end.
+func _airport_at(d: Vector3, other: Vector3, snap: float) -> Dictionary:
+	var a: Dictionary = airports.call("nearest", d, snap, false)
+	if not a.is_empty():
+		return a
+	var head := (other - d * d.dot(other)).normalized()
+	return {"d": d, "head": head, "side": d.cross(head).normalized(), "len": float(cfg.get("runway_km", 40.0)) * 0.75 / EARTH_KM,
+		"ground": 1.0, "large": false}
+
+
+## Along the great circle from d in the direction «dir» (a tangent) by the angle «ang».
+static func _walk(d: Vector3, dir: Vector3, ang: float) -> Vector3:
+	return (d * cos(ang) + dir * sin(ang)).normalized()
+
+
+## The flight a → b: the run along a's runway (the end facing b), the climb straight ahead, the great circle, the
+## approach lined up with b's runway (the end facing the way in), the touchdown, the roll to the runway's end.
+func _path(a: Dictionary, b: Dictionary) -> Path:
+	var p := Path.new()
+	var da: Vector3 = a["d"]
+	var db: Vector3 = b["d"]
+	var cruise := float(cfg.get("cruise", 0.012))
+	var climb := float(cfg.get("climb_km", 350.0)) / EARTH_KM
+	var to_b := (db - da * da.dot(db)).normalized()
+	var ha: Vector3 = a["head"]
+	if ha.dot(to_b) < 0.0:
+		ha = -ha
+	var from_a := (da - db * db.dot(da)).normalized()   # at b, towards a: the way in is the opposite
+	var hb: Vector3 = b["head"]
+	if hb.dot(-from_a) < 0.0:
+		hb = -hb
+	var la := float(a["len"]) * 0.5
+	var lb := float(b["len"]) * 0.5
+	var ga := float(a.get("ground", 1.0))
+	var gb := float(b.get("ground", 1.0))
+	var total_ang := da.angle_to(db)
+	var short := clampf(total_ang / (2.0 * (climb + la + lb) + 1e-6), 0.25, 1.0)   # a short hop: lower, quicker climb
+	var c1 := _walk(da, ha, la + climb * short)
+	var c2 := _walk(db, -hb, lb + climb * short)
+	var top := cruise * short
+	_add(p, _walk(da, -ha, la), 0.0, ga)
+	_add(p, _walk(da, ha, la), 0.0, ga)
+	_add(p, _walk(da, ha, la + climb * short * 0.5), top * 0.45, ga)
+	_add(p, c1, top * 0.85, ga)
+	var mid_ang := c1.angle_to(c2)
+	var n := clampi(int(rad_to_deg(mid_ang) / 2.0), 1, 90)
+	for k in range(1, n):
+		var t := float(k) / float(n)
+		_add(p, c1.slerp(c2, t).normalized(), top, lerpf(ga, gb, t))
+	_add(p, c2, top * 0.75, gb)
+	_add(p, _walk(db, -hb, lb + climb * short * 0.4), top * 0.3, gb)
+	_add(p, _walk(db, -hb, lb), 0.0, gb)
+	_add(p, _walk(db, hb, lb * 0.8), 0.0, gb)
+	return p
+
+
+static func _add(p: Path, d: Vector3, alt: float, ground: float) -> void:
+	if not p.pts.is_empty():
+		p.total += (p.pts[p.pts.size() - 1]).angle_to(d)
+	p.pts.append(d)
+	p.alt.append(alt)
+	p.ground.append(ground)
+	p.cum.append(p.total)
+
+
+## The game's routes as lines for the 2D overlay's dashes: [[directions, heights over the sea level]…].
+func route_lines() -> Array:
+	var out: Array = []
+	for r in _routes:
+		var p: Path = r["ab"]
+		var h := PackedFloat32Array()
+		for i in p.pts.size():
+			h.append(p.ground[i] - 1.0 + p.alt[i])
+		out.append([p.pts, h])
+	return out
 
 
 func _make() -> void:
@@ -120,35 +222,48 @@ func _process_timed(delta: float) -> void:
 	if not _planes.visible:
 		return
 	_time += delta
-	var span := float(cfg.get("plane_km", 45.0)) / EARTH_KM
-	var speed := float(cfg.get("speed_kmh", 30000.0)) / 3600.0 / EARTH_KM   # radians a second (sped up)
 	var mm := _planes.multimesh
 	var i := 0
 	var per := int(cfg.get("per_route", 2))
 	for r in _routes:
 		for j in per:
-			mm.set_instance_transform(i, _xf(r, float(j) / float(per), speed, span))
+			mm.set_instance_transform(i, _xf(r, float(j) / float(per)))
 			i += 1
 	for a in _ambient:
-		mm.set_instance_transform(i, _xf(a, 0.0, speed, span))
+		mm.set_instance_transform(i, _xf(a, 0.0))
 		i += 1
 
 
-## The jet on a route at this moment: there and back, along the route's arc (the same lift as the dashed line).
-func _xf(r: Dictionary, offset: float, speed: float, span: float) -> Transform3D:
-	var ang := float(r["ang"])
-	var trip := maxf(ang / speed, 6.0)   # seconds one way
-	var s := fposmod(_time / trip + float(r.get("phase", 0.0)) + offset, 2.0)
-	var forward := s < 1.0
-	var t := s if forward else 2.0 - s
-	var a: Vector3 = r["a"] if forward else r["b"]
-	var b: Vector3 = r["b"] if forward else r["a"]
-	if not forward:
-		t = 1.0 - t
-	var p := _on_arc(a, b, ang, t)
-	var q := _on_arc(a, b, ang, minf(t + 0.01, 1.0)) if t < 0.99 else p + (p - _on_arc(a, b, ang, t - 0.01))
-	var fwd := q - p
-	var up := p.normalized()
+## The jet of a route at this moment: a → b, a while at b, b → a, a while at a.
+func _xf(r: Dictionary, offset: float) -> Transform3D:
+	var speed := float(cfg.get("speed_kmh", 30000.0)) / 3600.0 / EARTH_KM   # radians a second (sped up)
+	var wait := float(cfg.get("wait_s", 5.0))
+	var ab: Path = r["ab"]
+	var ba: Path = r["ba"]
+	var t_ab := maxf(ab.total / speed, 6.0)
+	var t_ba := maxf(ba.total / speed, 6.0)
+	var cycle := t_ab + t_ba + wait * 2.0
+	var t := fposmod(_time + (float(r.get("phase", 0.0)) + offset) * cycle, cycle)
+	if t < t_ab:
+		return _on(ab, t / t_ab)
+	t -= t_ab
+	if t < wait:
+		return _on(ab, 1.0)
+	t -= wait
+	if t < t_ba:
+		return _on(ba, t / t_ba)
+	return _on(ba, 1.0)
+
+
+## The jet's place and attitude at a share of its way; larger as it climbs (land_km on the runway, plane_km at cruise).
+func _on(p: Path, share: float) -> Transform3D:
+	var s := clampf(share, 0.0, 1.0) * p.total
+	var pos := _at(p, s)
+	var ahead := _at(p, minf(s + 0.002, p.total))
+	var fwd := ahead - pos
+	if s + 0.002 > p.total:
+		fwd = pos - _at(p, maxf(s - 0.002, 0.0))
+	var up := pos.normalized()
 	if fwd.length() < 1e-9:
 		fwd = up.cross(Vector3.UP)
 	fwd = fwd.normalized()
@@ -156,14 +271,42 @@ func _xf(r: Dictionary, offset: float, speed: float, span: float) -> Transform3D
 	if x.length() < 0.5:
 		x = Vector3.RIGHT
 	var y := fwd.cross(x).normalized()
-	return Transform3D(Basis(x, y, fwd).scaled_local(Vector3.ONE * span), p)
+	var h := pos.length() - _ground_at(p, s)
+	var cruise := float(cfg.get("cruise", 0.012))
+	var k := smoothstep(0.0, cruise * 0.8, h)
+	var span := lerpf(float(cfg.get("land_km", 9.0)), float(cfg.get("plane_km", 90.0)), k) / EARTH_KM
+	# On the ground the wheels touch the runway: the model's middle a little over it.
+	return Transform3D(Basis(x, y, fwd).scaled_local(Vector3.ONE * span), pos + up * span * 0.06)
 
 
-## A point of the arc a → b at share t: the great circle, lifted in the middle (cruise) — globe_layers' _arc.
-func _on_arc(a: Vector3, b: Vector3, ang: float, t: float) -> Vector3:
-	var d := a.slerp(b, t).normalized()
-	var lift := float(cfg.get("lift", 0.03)) * sin(PI * t) * clampf(ang * 2.0, 0.05, 1.0)
-	return d * (1.0 + float(cfg.get("ground_lift", 0.002)) + lift)
+func _seg(p: Path, s: float) -> int:
+	var lo := 0
+	var hi := p.cum.size() - 1
+	while hi - lo > 1:
+		var mid := (lo + hi) / 2
+		if p.cum[mid] <= s:
+			lo = mid
+		else:
+			hi = mid
+	return lo
+
+
+func _at(p: Path, s: float) -> Vector3:
+	var i := _seg(p, s)
+	var j := mini(i + 1, p.pts.size() - 1)
+	var len_seg := p.cum[j] - p.cum[i]
+	var t := clampf((s - p.cum[i]) / len_seg, 0.0, 1.0) if len_seg > 1e-9 else 0.0
+	var d := p.pts[i].slerp(p.pts[j], t).normalized()
+	var h := lerpf(p.alt[i], p.alt[j], smoothstep(0.0, 1.0, t))
+	return d * (lerpf(p.ground[i], p.ground[j], t) + h)
+
+
+func _ground_at(p: Path, s: float) -> float:
+	var i := _seg(p, s)
+	var j := mini(i + 1, p.pts.size() - 1)
+	var len_seg := p.cum[j] - p.cum[i]
+	var t := clampf((s - p.cum[i]) / len_seg, 0.0, 1.0) if len_seg > 1e-9 else 0.0
+	return lerpf(p.ground[i], p.ground[j], t)
 
 
 # ---------- the model ----------

@@ -16,6 +16,7 @@ const Roads3D := preload("res://mods/pax_corpinc3d/src/layers/roads3d.gd")
 const Armies3D := preload("res://mods/pax_corpinc3d/src/layers/armies3d.gd")
 const Ships3D := preload("res://mods/pax_corpinc3d/src/layers/ships3d.gd")
 const Planes3D := preload("res://mods/pax_corpinc3d/src/layers/planes3d.gd")
+const Airports3D := preload("res://mods/pax_corpinc3d/src/layers/airports3d.gd")
 const CountryFocus := preload("res://mods/pax_corpinc3d/src/layers/country_focus.gd")
 const V := preload("res://mods/pax_corpinc3d/src/core/v024.gd")             # game 0.24's English keys
 const GameApi := preload("res://mods/pax_corpinc3d/src/shared/game_api.gd")   # Main's methods, 0.24 names
@@ -38,6 +39,7 @@ var _tab_catcher: Node             # TabCatcher: the last child of the root
 var focus: CountryFocus               # a second click on the chosen country: the ring, the drop, its regions' map
 var ships: Ships3D                    # container ships at sea (a child of the Earth's node while shown)
 var planes: Planes3D                  # airliners on the air routes and between big cities (the same)
+var airports: Airports3D              # the real airports they take off from and land on (the same)
 var armies: Armies3D                  # the armies as 3D soldiers and cars (a child of the Earth's node while shown)
 var roads: Roads3D                    # the networks as 3D geometry (a child of the Earth's node while shown)
 var labels_on := true                # the cities' names (config/cities.json): switches «labels»
@@ -102,15 +104,19 @@ func setup(m: PaxMod) -> void:
 	if bool(all_ships.get("enabled", true)):
 		ships = Ships3D.new()
 		ships.setup(m, all_ships)
+	var all_air: Dictionary = all.get("airports", {})
+	if bool(all_air.get("enabled", true)):
+		airports = Airports3D.new()
+		airports.setup(m, all_air)
 	var all_planes: Dictionary = all.get("planes", {})
-	if bool(all_planes.get("enabled", true)):
+	if bool(all_planes.get("enabled", true)) and airports != null:
 		planes = Planes3D.new()
-		planes.setup(m, all_planes)
+		planes.setup(m, all_planes, airports)
 
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_PREDELETE:
-		for n in [roads, armies, ships, planes]:
+		for n in [roads, armies, ships, planes, airports]:
 			if n != null and is_instance_valid(n) and (n as Node).get_parent() == null:
 				(n as Node).free()
 
@@ -174,6 +180,8 @@ func _process_body(delta: float) -> void:
 	if ships != null:
 		ships.visible = switches.is_on("ships")
 		ships.set_caravans(_list("caravans"), func(c: Dictionary) -> bool: return V.is_kind(str(V.field(c, "вид", "")), "корабль"))
+	if airports != null:
+		airports.visible = switches.is_on("airports")
 	if planes != null:
 		planes.visible = switches.is_on("flights")
 		planes.set_routes(_air_routes())
@@ -222,13 +230,13 @@ func _refresh(delta: float) -> void:
 
 ## The 3D networks live in the Earth's node (its rotation, its radius 1) while the globe is shown.
 func _place_roads(on: bool) -> void:
-	if roads == null and armies == null and ships == null and planes == null:
+	if roads == null and armies == null and ships == null and planes == null and airports == null:
 		return
 	var earth: Variant = mod.get("earth")
 	var node: Variant = (earth as Object).call("node") if earth is Object and is_instance_valid(earth) and (earth as Object).has_method("node") else null
 	var parent: Node = node if on and node is Node3D else null
 	if parent == null:
-		for n in [roads, armies, ships, planes]:
+		for n in [roads, armies, ships, planes, airports]:
 			if n != null and (n as Node).get_parent() != null:
 				(n as Node).get_parent().remove_child(n)
 		return
@@ -239,7 +247,7 @@ func _place_roads(on: bool) -> void:
 		roads.set_ground((earth as Object).call("height_texture") as Texture2D, float((earth as Object).call("height_exag")))
 	if roads != null:
 		roads.set_sun((earth as Object).call("sun_dir") as Vector3)
-	for n in [armies, ships, planes]:
+	for n in [armies, ships, planes, airports]:
 		if n != null and (n as Node).get_parent() != parent:
 			if (n as Node).get_parent() != null:
 				(n as Node).get_parent().remove_child(n)
@@ -727,6 +735,8 @@ func _draw_all_body() -> void:
 		_draw_indicators(icons)
 	if labels_on:
 		_draw_labels(zoom)
+	if switches.is_on("airports"):
+		_draw_airports(zoom)
 	if switches.is_on("bases"):
 		_draw_bases()
 	if switches.is_on("battles"):
@@ -750,6 +760,8 @@ func _draw_trade() -> void:
 			continue
 		var kind := str(V.field(c, "вид", ""))
 		var air := V.is_kind(kind, "самолёт")
+		if air and planes != null:
+			continue   # drawn with the flights: along the jets' own way, airport to airport
 		# Air routes white, not in the carrier country's colour (coloured arcs read as borders and fronts).
 		var col: Color = Color.WHITE if air else V.field(c, "цвет", Color.WHITE)
 		var path := PackedVector2Array()
@@ -765,6 +777,16 @@ func _draw_trade() -> void:
 
 
 func _draw_flights() -> void:
+	if planes != null:
+		# The jets' own ways (planes3d.gd): from the runway of one real airport to the runway of another.
+		for line in planes.route_lines():
+			var dirs: PackedVector3Array = (line as Array)[0]
+			var hs: PackedFloat32Array = (line as Array)[1]
+			var pts := PackedVector2Array()
+			for i in dirs.size():
+				pts.append(_at(dirs[i], hs[i]))
+			_polyline(pts, Color(1, 1, 1, 0.4), 1.2, 6.0)
+		return
 	for f in _list("flights"):
 		if not (f is Dictionary):
 			continue
@@ -772,6 +794,39 @@ func _draw_flights() -> void:
 		if not (V.field(d, "а") is Vector2 and V.field(d, "б") is Vector2):
 			continue
 		_polyline(_arc(V.field(d, "а"), V.field(d, "б"), _air_lift()), Color(1, 1, 1, 0.3), 1.0, 6.0)
+
+
+## The airports' codes (IATA) with a plane sign, close in: the large ones first, no label over another.
+func _draw_airports(zoom: float) -> void:
+	if airports == null or zoom < float(cfg.get("airports_from_zoom", 3.0)):
+		return
+	var font := _canvas.get_theme_default_font()
+	var placed: Array = []
+	var shown := 0
+	for pass_i in 2:
+		for a in airports.list:
+			if bool((a as Dictionary)["large"]) != (pass_i == 0):
+				continue
+			if shown >= 70:
+				return
+			var s := _at((a as Dictionary)["d"] as Vector3, float((a as Dictionary)["ground"]) - 1.0)
+			if not _on_screen(s, 0.0):
+				continue
+			var label := "✈ " + str((a as Dictionary)["iata"])
+			var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+			var rect := Rect2(s + Vector2(-tw * 0.5, 8), Vector2(tw, 14)).grow(2.0)
+			var free := true
+			for r in placed:
+				if (r as Rect2).intersects(rect):
+					free = false
+					break
+			if not free:
+				continue
+			placed.append(rect)
+			shown += 1
+			_canvas.draw_string_outline(font, rect.position + Vector2(2, 13), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, 4, Color(0, 0, 0, 0.8))
+			_canvas.draw_string(font, rect.position + Vector2(2, 13), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.75, 0.9, 1.0))
+			_hits.append({"pos": rect.get_center(), "r": tw * 0.5 + 4.0, "lines": [str((a as Dictionary)["name"]), str((a as Dictionary)["city"])]})
 
 
 ## The air routes' arc height — the same the 3D jets fly at (config «planes» lift).

@@ -15,6 +15,7 @@ extends Node3D
 ## (the height map: the sea is at 0). Lives in the Earth's node (its own space, radius 1) under globe.gd's holder.
 
 const GameApi := preload("res://mods/pax_corpinc3d/src/shared/game_api.gd")
+const Airports := preload("res://mods/pax_corpinc3d/src/layers/airports3d.gd")
 const EARTH_KM := 6371.0
 const FLOATS := 16                 # a MultiMesh instance with colour: 12 of the transform, 4 of the colour
 const WALLS := [Color(0.86, 0.83, 0.77), Color(0.78, 0.78, 0.76), Color(0.90, 0.88, 0.84), Color(0.70, 0.66, 0.60),
@@ -42,6 +43,7 @@ var _hidden: PackedInt32Array = PackedInt32Array()   # the cities whose boxes ar
 class TownJob extends RefCounted:
 	var cities: Array
 	var avoid: Array
+	var avoid_now: Array = []
 	var height: Image
 	var exag := 3.5
 	var size_km := 2.0
@@ -74,6 +76,11 @@ class TownJob extends RefCounted:
 			var north := up.cross(east).normalized()
 			var radius := float(c["r"])
 			var big := pop >= 1000000
+			# Only what is near this city is checked for its houses (the airports are many).
+			avoid_now = []
+			for a in avoid:
+				if up.angle_to(a[0] as Vector3) < radius * 2.0 + float(a[1]) + 0.02:
+					avoid_now.append(a)
 			var cells: PackedFloat32Array = c.get("cells", PackedFloat32Array())
 			if not cells.is_empty():
 				n = mini(cells.size() / 4, layout_max)
@@ -119,9 +126,12 @@ class TownJob extends RefCounted:
 			ranges.append((params.size() - before) / 7)
 
 	func _free(p: Vector3) -> bool:
-		for a in avoid:
+		for a in avoid_now:
 			if p.angle_to(a[0] as Vector3) < float(a[1]):
-				return false
+				if (a as Array).size() < 5:
+					return false
+				if Airports.covers(a[0], a[2], a[3], float(a[4]), p):
+					return false   # an airport: only its runway's box is kept free
 		return true
 
 	## The same ground as earth.gd surface_radius (the height map × its exaggeration), read here off the main thread.
@@ -307,6 +317,13 @@ func _read_avoid() -> Array:
 		for cv in d["cells"]:
 			reach = maxf(reach, (cv as Vector2).length())
 		out.append([d["up"], (reach + 1.5) * float(d["step"])])
+	# The airports (the layers' airports3d.gd): no house on a runway or the terminal.
+	var layers: Variant = mod.get("layers")
+	var air: Variant = (layers as Object).get("airports") if layers is Object and is_instance_valid(layers) else null
+	if air is Object and is_instance_valid(air):
+		for a in (air as Object).get("list"):
+			var ad: Dictionary = a
+			out.append([ad["d"], float(ad["len"]) * 0.75 + 0.0025, ad["head"], ad["side"], ad["len"]])
 	return out
 
 

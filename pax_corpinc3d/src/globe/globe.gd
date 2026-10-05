@@ -16,6 +16,9 @@ const REF_M := 100.0
 const CITY_DEG := 0.5
 const Towns := preload("res://mods/pax_corpinc3d/src/globe/towns.gd")
 const Landmarks := preload("res://mods/pax_corpinc3d/src/globe/landmarks.gd")
+const CityFabric := preload("res://mods/pax_corpinc3d/src/globe/city_fabric.gd")
+const Towns2 := preload("res://mods/pax_corpinc3d/src/globe/towns.gd")
+const Airports := preload("res://mods/pax_corpinc3d/src/layers/airports3d.gd")
 const STREET_GAP := 1.35            # the city grid's step × the widest building: the streets run in the gaps
 
 var mod: PaxMod
@@ -56,6 +59,7 @@ var landmarks: Node3D               # the world's landmarks (landmarks.gd)
 var towns: Node3D                   # the world's cities as buildings (towns.gd), under the holder
 var _towns_for: Node3D              # the holder the towns were made for
 var _lods: Dictionary = {}          # "id|max_tris" -> a lighter model (mesh_lod)
+var _fabric: CityFabric             # the streets' blocks and houses round the companies' quarters (city_fabric.gd)
 
 
 func setup(m: PaxMod, ph: Object) -> void:
@@ -384,6 +388,38 @@ func _build(api: Object) -> void:
 	var by_model := {}
 	var pads: Array = []
 	var picks: Array = []
+	var houses: Array = []
+	var parks: Array = []
+	if _fabric == null:
+		_fabric = CityFabric.new()
+		_fabric.load_cities(GameApi.json(mod, "config/cities.json", {}))
+	var ground_cb := func(d: Vector3) -> float: return _ground(d)
+	# No block over the sea, nor over an airport's runway and terminal (layers' airports3d.gd: the jets land there).
+	var buckets := {}   # "lat|lon" by 2° -> the airports there
+	var fab_pad := 0.0012   # a little round the runway box (Earth radii): the city keeps its blocks round it
+	var layers: Variant = mod.get("layers")
+	var air: Variant = (layers as Object).get("airports") if layers is Object and is_instance_valid(layers) else null
+	if air is Object and is_instance_valid(air):
+		for a in (air as Object).get("list"):
+			var ad: Vector3 = (a as Dictionary)["d"]
+			var key := "%d|%d" % [floori(rad_to_deg(asin(clampf(ad.y, -1.0, 1.0))) / 2.0), floori(rad_to_deg(atan2(ad.x, ad.z)) / 2.0)]
+			if not buckets.has(key):
+				buckets[key] = []
+			(buckets[key] as Array).append(a)
+	var water_cb := func(d: Vector3) -> bool:
+		if is_water(d):
+			return true
+		var bi := floori(rad_to_deg(asin(clampf(d.y, -1.0, 1.0))) / 2.0)
+		var bj := floori(rad_to_deg(atan2(d.x, d.z)) / 2.0)
+		for di in [-1, 0, 1]:
+			for dj in [-1, 0, 1]:
+				for a in buckets.get("%d|%d" % [bi + int(di), bj + int(dj)], []):
+					var ad: Dictionary = a
+					# A block is a city's step wide: its middle kept off the runway's box grown by half a block.
+					if d.angle_to(ad["d"] as Vector3) < float(ad["len"]) * 0.75 + 0.0025 + fab_pad \
+							and Airports.covers(ad["d"], ad["head"], ad["side"], float(ad["len"]), d, fab_pad):
+						return true
+		return false
 	for key in cities.keys():
 		var cd: Dictionary = cities[key]
 		var list: Array = cd["list"]
@@ -438,8 +474,18 @@ func _build(api: Object) -> void:
 			# quarters no longer stand on grass.
 			picks.append([pos * (_ground(pos) + k * 0.5), k * 0.6, str(list[i][1])])   # centre, reach, company
 			pads.append(Transform3D(basis.scaled(Vector3.ONE * step), pos * (_ground(pos) + k * 0.004)))
+		# The city round the companies: blocks, houses, parks; the blocks join the cells (streets, towns.gd's gap).
+		var fab := _fabric.build(up, east, north, step, cells, size_100m * scale_k * 0.5, 0.35 if hq_only else 1.0, ground_cb, water_cb)
+		cells.append_array(fab["blocks"])
+		pads.append_array(fab["pads"])
+		parks.append_array(fab["parks"])
+		houses.append_array(fab["houses"])
 	if not pads.is_empty():
 		_mm["_pads"] = _pads_node(pads)
+	if not parks.is_empty():
+		_mm["_parks"] = _pads_node(parks, Color(0.25, 0.42, 0.2))
+	if not houses.is_empty():
+		_mm["_houses"] = _houses_node(houses)
 	_count = 0
 	for id in by_model.keys():
 		var xfs: Array = by_model[id]
@@ -459,7 +505,7 @@ func _build(api: Object) -> void:
 	city_list = built
 	_picks = picks
 	cities_version += 1
-	mod.log_info("3D globe: %d buildings in %d cities, %d models" % [_count, cities.size(), _mm.size()])
+	mod.log_info("3D globe: %d buildings in %d cities, %d models, %d city houses" % [_count, cities.size(), _mm.size(), houses.size()])
 
 
 ## The company of the building under a point of the screen ("" — none): the building nearest to the ray from the eye,
@@ -491,11 +537,11 @@ func company_at(cam: Camera3D, at: Vector2) -> String:
 
 
 ## A grey square under each cell of a company city (towns.gd has its own under the world's cities).
-func _pads_node(xfs: Array) -> MultiMeshInstance3D:
+func _pads_node(xfs: Array, col: Color = Color(0.40, 0.39, 0.37)) -> MultiMeshInstance3D:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2.ONE
 	var m := StandardMaterial3D.new()
-	m.albedo_color = Color(0.40, 0.39, 0.37)
+	m.albedo_color = col
 	m.roughness = 0.95
 	plane.material = m
 	var mm := MultiMesh.new()
@@ -507,6 +553,24 @@ func _pads_node(xfs: Array) -> MultiMeshInstance3D:
 	var mi := MultiMeshInstance3D.new()
 	mi.multimesh = mm
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.visible = show_companies
+	_holder.add_child(mi)
+	return mi
+
+
+## The city's houses (city_fabric.gd): towns.gd's box, a colour each.
+func _houses_node(list: Array) -> MultiMeshInstance3D:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.mesh = Towns2._box_mesh()
+	mm.instance_count = list.size()
+	for j in list.size():
+		mm.set_instance_transform(j, (list[j] as Array)[0])
+		mm.set_instance_color(j, (list[j] as Array)[1])
+	var mi := MultiMeshInstance3D.new()
+	mi.multimesh = mm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.visible = show_companies
 	_holder.add_child(mi)
 	return mi
