@@ -155,6 +155,23 @@ EqUv eq_uv(vec3 n) {
 
 // A macro, not a function: a function may not take samplers with different hints.
 #define EQ(t, n) textureGrad(t, eq_uv(n).uv, eq_uv(n).dx, eq_uv(n).dy)
+// The same at the pixel's own point: its coordinates and their derivatives worked out once (EP, at the top of
+// fragment) — EQ for every map redid the atan, the acos and four derivatives each time (8 maps a pixel).
+#define EQN(t) textureGrad(t, EP.uv, EP.dx, EP.dy)
+
+// ---- the light (light() below): sunlight through the air, rough land, the sun's glint on the sea ----
+// The direct sun at the ground passes through air mass m (Kasten & Young 1989: m ≈ 1 at the zenith, ~38 at the horizon);
+// what is left of it is exp(−τ·m) per colour — Rayleigh scattering (τ ≈ 0.036, 0.098, 0.236 at 680/550/440 nm) and haze
+// (aerosols, grey). Taken relative to the zenith: noon keeps the brightness it had, the low sun dims and reddens.
+uniform float sun_air : hint_range(0.0, 2.0) = 1.0;          // the Rayleigh part (1 — the Earth's air)
+uniform float sun_haze : hint_range(0.0, 0.3) = 0.05;        // the aerosols' optical depth at the zenith
+uniform float terminator_soft : hint_range(0.0, 0.1) = 0.02; // the sun's disc, refraction and the relief: a soft edge
+uniform float land_rough : hint_range(0.0, 1.0) = 0.45;      // Oren–Nayar σ of the land (forest, soil): flatter, no plastic look
+uniform float sea_glint : hint_range(0.0, 3.0) = 1.0;        // the sun's reflection on the sea (GGX, water F0 0.02)
+uniform float light_realism : hint_range(0.0, 1.0) = 1.0;    // 0 — the engine's plain Lambert light as before
+varying vec3 v_eye;      // the camera in the Earth's own space (vertex(): one inverse per vertex, not three per pixel)
+varying float lt_sea;    // fragment → light(): the sea's share here
+varying float lt_mu;     // fragment → light(): the sun's height over the round planet here (cos of its zenith angle)
 // A cell of a grid on the cube's faces around a direction (the fields): its id (3D) and the place inside it.
 vec3 field_cell(vec3 n, float k, out vec2 inside) {
 	vec3 a = abs(n);
@@ -209,6 +226,7 @@ float ground_r(vec3 n) {
 }
 
 void vertex() {
+	v_eye = (inverse(MODEL_MATRIX) * vec4(CAMERA_POSITION_WORLD, 1.0)).xyz;
 	vec3 n = normalize(VERTEX);
 	if (use_height_map > 0.5) {
 		// Skirts of the terrain chunks (COLOR.r = 0; a mesh without colours reads white) hang a little below the
@@ -274,6 +292,7 @@ void prov_tap(ivec2 at, ivec2 bs, out vec3 own_c, out float own_k, out float sel
 
 void fragment() {
 	vec3 n = normalize(local_pos);
+	EqUv EP = eq_uv(n);
 	Surface s = surface(n);
 	vec3 col = s.col;
 	vec3 sp = s.sp;
@@ -299,9 +318,9 @@ void fragment() {
 	float shine = s.shine;
 
 	// ---- the real colour of the map ----
-	float map_sea_here = use_water > 0.5 ? EQ(water_map, (n)).r : 1.0 - land;
+	float map_sea_here = use_water > 0.5 ? EQN(water_map).r : 1.0 - land;
 	if (use_map > 0.5 && real_color > 0.0) {
-		vec3 mc = EQ(map_albedo, (n)).rgb * real_gain;
+		vec3 mc = EQN(map_albedo).rgb * real_gain;
 		float own = real_color * (1.0 - s.burn) * (1.0 - city * 0.85) * (1.0 - lava_frac);
 		// The map's colour everywhere, but where the game has water over the map's land (a flood), the game's water
 		// stays. (Gating land on land and sea on sea left a dark seam where two masks differ by a pixel at the coast.)
@@ -318,7 +337,7 @@ void fragment() {
 		vec4 ab = texelFetch(borders_ids, bp, 0);
 		int ia = int(ab.r * 255.0 + 0.5) + int(ab.g * 255.0 + 0.5) * 256;
 		int ib = int(ab.b * 255.0 + 0.5) + int(ab.a * 255.0 + 0.5) * 256;
-		EqUv e = eq_uv(n);
+		EqUv e = EP;
 		float tpp = max(max(length(e.dx * vec2(bs)), length(e.dy * vec2(bs))), 1e-4);   // texels per screen pixel
 		float dpx = textureLod(borders_dist, buv, 0.0).r * 255.0 / 32.0 / tpp;          // distance in screen pixels
 		ivec2 ps = textureSize(region_pal, 0);
@@ -444,14 +463,14 @@ void fragment() {
 	float sea = 1.0 - max(land, city);
 	if (use_water > 0.5) {
 		// The game's own sea (floods, a risen ocean) wins where it is wider than the map's.
-		sea = max(EQ(water_map, (n)).r * (1.0 - city), 1.0 - max(land, city));
+		sea = max(EQN(water_map).r * (1.0 - city), 1.0 - max(land, city));
 	}
 	// Inland water the game's ocean mask does not know (the Great Lakes, Baikal, Ladoga…): in the map's real colours
 	// it is dark and bluer than green or red — drawn as water (blue, with the sea's sheen), not as black land.
 	if (lakes > 0.0) {
 		// The map's own colour (sRGB-ish): lakes in it are near black (Superior 0,3,6 of 255; Erie greenish 0,6,4) —
 		// darker than any forest or taiga — and their blue is not far below their green.
-		vec3 lc0 = sqrt(max(EQ(map_albedo, (n)).rgb, vec3(0.0)));
+		vec3 lc0 = sqrt(max(EQN(map_albedo).rgb, vec3(0.0)));
 		float llum = dot(lc0, vec3(0.3, 0.59, 0.11));
 		float lake = (1.0 - smoothstep(0.035, 0.07, llum)) * smoothstep(0.35, 0.6, lc0.b / max(lc0.g, 0.004)) * (1.0 - sea) * lakes;
 		col = mix(col, lake_color, lake);
@@ -468,7 +487,7 @@ void fragment() {
 	float path = min(length(VERTEX) / earth_r, air_height / cosz);
 	float fres = 1.0 - exp(-path / (air_height * air_thickness));
 	// The eye inside the air (descent.gd): the far ground fades into the pale horizon, not the deep blue of the limb.
-	vec3 eye_local = (inverse(MODEL_MATRIX) * vec4(CAMERA_POSITION_WORLD, 1.0)).xyz;
+	vec3 eye_local = v_eye;
 	float inside = 1.0 - smoothstep(air_height * 3.0, air_height * 25.0, length(eye_local) - 1.0);
 
 	// ---- relief: the normal from the elevation map ----
@@ -479,7 +498,7 @@ void fragment() {
 		// around 0.5 (SLOPE_SCALE there). Filtered like any map, so plains stay smooth (an 8-bit height lit directly made them bumpy).
 		vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), n) + vec3(1e-5, 0.0, 0.0));
 		vec3 north = cross(n, east);
-		vec2 slope = (EQ(relief_map, (n)).rg - vec2(0.5)) * (2.0 / 12.0);
+		vec2 slope = (EQN(relief_map).rg - vec2(0.5)) * (2.0 / 12.0);
 		nn = normalize(n - (east * slope.x + north * slope.y) * relief_strength * (1.0 - sea));
 		NORMAL = normalize((VIEW_MATRIX * (MODEL_MATRIX * vec4(nn, 0.0))).xyz);
 		steep = length(slope) * height_exag;
@@ -488,7 +507,7 @@ void fragment() {
 	// ---- cities: the built-up area ----
 	float urban_area = 0.0;
 	if (use_urban > 0.5) {
-		urban_area = EQ(urban_map, (n)).r * (1.0 - sea);
+		urban_area = EQN(urban_map).r * (1.0 - sea);
 		// A grain of blocks and roofs; in the middle the city is denser and greyer.
 		float grain = 0.82 + 0.36 * detail_at(n, 6371.0 / 3.0).b;
 		vec3 town = urban_color * grain * mix(1.05, 0.9, smoothstep(0.5, 1.0, urban_area));
@@ -497,7 +516,7 @@ void fragment() {
 
 	// ---- the ground seen close: detail patterns where the map blurs ----
 	if (use_detail > 0.5) {
-		EqUv eu = eq_uv(n);
+		EqUv eu = EP;
 		vec2 msz = vec2(textureSize(map_albedo, 0));
 		float tpp = max(length(eu.dx * msz), length(eu.dy * msz));     // map texels per screen pixel
 		float near_k = (1.0 - smoothstep(0.25, 1.2, tpp)) * (1.0 - sea);
@@ -561,7 +580,7 @@ void fragment() {
 	if (use_cloud_shadow > 0.5) {
 		cover_here = EQ(clouds_map, (normalize(cloud_basis * n))).r;
 		float shade = EQ(clouds_map, (normalize(cloud_basis * normalize(n + sun * 0.006)))).r;
-		float cloud_alt = (length((inverse(MODEL_MATRIX) * vec4(CAMERA_POSITION_WORLD, 1.0)).xyz) - 1.0) * 6371.0;
+		float cloud_alt = (length(v_eye) - 1.0) * 6371.0;
 		shade *= mix(cloud_near_alpha, 1.0, smoothstep(cloud_near_km, cloud_far_km, cloud_alt));
 		col *= 1.0 - shade * cloud_shadow * day;
 	}
@@ -573,6 +592,8 @@ void fragment() {
 	col = mix(col, haze_col, fres * mix(haze, haze_inside, inside) * day * atmo_visible);
 
 	ALBEDO = col;
+	lt_sea = sea * (1.0 - lava_frac);
+	lt_mu = ndl;
 	float rough_sea = mix(sea_roughness, 0.90, lava_frac);
 	ROUGHNESS = mix(0.92, rough_sea, sea);
 	SPECULAR = mix(0.08, mix(0.25, 0.05, lava_frac), sea);   // a soft sheen: a white spot on a narrow sea reads as a salt flat
@@ -587,7 +608,10 @@ void fragment() {
 	light_col = mix(light_col, light_hot, heat);
 	light_col = mix(light_col, light_cold, cold * 0.75);
 
-	float far_glow = smoothstep(0.52, 0.86, fbm(sp * 18.0 + vec3(7.3)));
+	// The noises (5 octaves of value noise each) only where their light can show: at night, over the game's towns, seas
+	// with life, hot land, the auroral oval — they ran on every pixel of the day side too.
+	float towns_night = (city_land + city_sea) * night;
+	float far_glow = towns_night > 0.0 ? smoothstep(0.52, 0.86, fbm(sp * 18.0 + vec3(7.3))) : 0.0;
 	float wmask = mix(far_glow, lit * (1.0 - street * 0.75) + street * 0.22, legible_b);
 	vec3 w_res = vec3(1.00, 0.80, 0.46);
 	vec3 w_farm = vec3(0.85, 0.75, 0.45);
@@ -609,19 +633,20 @@ void fragment() {
 	vec3 real_lights = vec3(0.0);
 	if (use_night > 0.5) {
 		win_glow *= proc_lights;
-		vec3 nl = EQ(night_map, (n)).rgb;
+		vec3 nl = EQN(night_map).rgb;
 		// Black Marble's dark ground is not black (the 2016 map's moonlit land and sea are blue-grey): only the bright
 		// part is light, read by its red (the bluish ground has next to none). Warm sodium colour.
 		vec3 glow = vec3(max(min(nl.r, nl.g) - 0.06, 0.0)) * vec3(1.15, 0.92, 0.62);
 		real_lights = glow * night_gain * night * lights_on * (1.0 - cover_here * 0.65) * (1.0 - sea * 0.85);
 	}
 
-	float deep_pulse = fbm(sp * 5.0 + vec3(61.0));
-	float pl_n = smoothstep(0.45, 0.85, fbm(sp * 6.5 + vec3(29.0)));
+	float deep_pulse = submerged * night > 0.0 ? fbm(sp * 5.0 + vec3(61.0)) : 0.0;
+	float pl_n = sea_life * (1.0 - land) * night > 0.0 ? smoothstep(0.45, 0.85, fbm(sp * 6.5 + vec3(29.0))) : 0.0;
 	vec3 planktone = vec3(0.20, 0.95, 0.68) * sea_life * (1.0 - land) * night * (0.30 + pl_n * 0.85) * 0.55;
 	vec3 under = light_col * submerged * night * (0.35 + deep_pulse * 0.5) * 0.55;
 	vec3 lava_glow = mix(vec3(0.95, 0.24, 0.03), vec3(1.0, 0.60, 0.13), depth) * cracks * lava_frac * (1.0 - land) * (1.5 + night * 1.1);
-	float land_lava = smoothstep(0.80, 1.0, T) * smoothstep(0.52, 0.86, fbm(sp * 6.0 + vec3(91.0)));
+	float hot_land = smoothstep(0.80, 1.0, T) * land;
+	float land_lava = hot_land > 0.0 ? smoothstep(0.80, 1.0, T) * smoothstep(0.52, 0.86, fbm(sp * 6.0 + vec3(91.0))) : 0.0;
 	vec3 molten = vec3(1.0, 0.28, 0.06) * land_lava * 1.6 * land * (1.0 - city_land * 0.7);
 
 	// ================= ATMOSPHERE: blue by day, orange where the sun sets =================
@@ -637,7 +662,7 @@ void fragment() {
 	vec3 feat_glow = mix(vec3(1.0, 0.30, 0.05), vec3(1.0, 0.72, 0.25), fheat * 0.6) * fheat * 1.6;
 
 	float aur_band = smoothstep(0.885, 0.925, lat) * (1.0 - smoothstep(0.962, 0.992, lat));
-	float aur_wave = fbm(vec3(n.x * 7.0, n.y * 22.0, n.z * 7.0) + seed_shift());
+	float aur_wave = aur_band * magnetic * night * aurora_k > 0.0 ? fbm(vec3(n.x * 7.0, n.y * 22.0, n.z * 7.0) + seed_shift()) : 0.0;
 	// A real aurora: a faint green oval on the night side only (the game's was violet patches, by day too, as
 	// bright as clouds).
 	float aurora = aur_band * smoothstep(0.55, 0.8, aur_wave) * magnetic * smoothstep(0.06, 0.30, atmosphere) * night * aurora_k;
@@ -645,4 +670,50 @@ void fragment() {
 
 	float city_glow = use_urban > 0.5 ? smoothstep(0.15, 0.9, urban_area) * night * lights_on * (1.0 - cover_here * 0.6) * urban_glow : 0.0;
 	EMISSION = halo + pol_light * mix(0.4, 1.0, night) + win_glow + real_lights + urban_light * city_glow + under + planktone + molten + lava_glow + feat_glow + aur_col * aurora * 0.9;
+}
+
+
+// Sunlight on the ground (a light() of our own; the engine multiplies DIFFUSE_LIGHT by ALBEDO afterwards):
+//   the sun's colour after its path through the air (air mass by Kasten & Young, Rayleigh + haze), relative to noon;
+//   a soft terminator (the sun's disc, refraction, the relief) instead of the hard line of the plain dot product;
+//   the land as a rough surface (Oren–Nayar, Fujii's form without trig): the disc's edge does not go plastic-dark;
+//   the sea: a little diffuse and the sun's glint by GGX with water's Fresnel (F0 0.02) — a real-sized sun path.
+void light() {
+	float nl = dot(NORMAL, LIGHT);
+	if (!LIGHT_IS_DIRECTIONAL || light_realism <= 0.0) {
+		DIFFUSE_LIGHT += LIGHT_COLOR * ATTENUATION * max(nl, 0.0) / PI;
+	} else {
+		float mu = lt_mu;
+		float up = smoothstep(-terminator_soft * 0.6, terminator_soft, mu);
+		if (up > 0.0) {
+			float zen = degrees(acos(clamp(mu, 0.0, 1.0)));
+			float mass = 1.0 / (max(mu, 0.0) + 0.50572 * pow(96.07995 - zen, -1.6364));
+			vec3 tau = vec3(0.036, 0.098, 0.236) * sun_air + vec3(sun_haze);
+			vec3 sun_col = mix(vec3(up), exp(-tau * (mass - 1.0)) * up, light_realism);
+			vec3 light_in = LIGHT_COLOR * ATTENUATION * sun_col;
+			float nv = max(dot(NORMAL, VIEW), 1e-4);
+			float cnl = max(nl, 0.0);
+			// Oren–Nayar (Fujii): s = L·V − (N·L)(N·V); t = max(N·L, N·V) where s > 0.
+			float s2 = land_rough * land_rough;
+			float A = 1.0 - 0.5 * s2 / (s2 + 0.33);
+			float B = 0.45 * s2 / (s2 + 0.09);
+			float sv = dot(LIGHT, VIEW) - cnl * nv;
+			float tv = sv > 0.0 ? max(cnl, nv) : 1.0;
+			float rough_d = max(cnl * (A + B * sv / max(tv, 1e-4)), 0.0);
+			DIFFUSE_LIGHT += light_in * mix(cnl, rough_d, (1.0 - lt_sea) * light_realism) / PI;
+			// The sea's glint: GGX distribution, Smith visibility, Schlick Fresnel with water's F0.
+			if (lt_sea > 0.01 && cnl > 0.0) {
+				vec3 H = normalize(LIGHT + VIEW);
+				float nh = max(dot(NORMAL, H), 0.0);
+				float vh = max(dot(VIEW, H), 0.0);
+				float a = max(ROUGHNESS * ROUGHNESS, 0.002);
+				float a2 = a * a;
+				float dd = nh * nh * (a2 - 1.0) + 1.0;
+				float D = a2 / (PI * dd * dd);
+				float vis = 0.5 / max(mix(2.0 * cnl * nv, cnl + nv, a), 1e-4);
+				float F = 0.02 + 0.98 * pow(1.0 - vh, 5.0);
+				SPECULAR_LIGHT += light_in * (D * vis * F * cnl * lt_sea * sea_glint);
+			}
+		}
+	}
 }
