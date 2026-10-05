@@ -1,0 +1,127 @@
+{
+	"_": "Достопримечательности (src/globe/landmarks.gd): модель models/landmarks/<id>.glb (строит pax_corporations_dev/landmarks_blender.py в Blender), место [широта, долгота], высота в метрах, имена. «scale» — во сколько раз крупнее жизни (видно с высоты обзора), «show_below_km» — ниже какой высоты камеры видны.",
+	"scale": 30.0,
+	"show_below_km": 2600.0,
+	"landmarks": {
+		"eiffel": {
+			"ru": "Эйфелева башня",
+			"en": "Eiffel Tower",
+			"lat": 48.8584,
+			"lon": 2.2945,
+			"height_m": 330,
+			"yaw": 0
+		},
+		"giza": {
+			"ru": "Пирамиды Гизы",
+			"en": "Pyramids of Giza",
+			"lat": 29.9792,
+			"lon": 31.1342,
+			"height_m": 139,
+			"yaw": 0
+		},
+		"liberty": {
+			"ru": "Статуя Свободы",
+			"en": "Statue of Liberty",
+			"lat": 40.6892,
+			"lon": -74.0445,
+			"height_m": 93,
+			"yaw": 0
+		},
+		"bigben": {
+			"ru": "Биг-Бен",
+			"en": "Big Ben",
+			"lat": 51.5007,
+			"lon": -0.1246,
+			"height_m": 96,
+			"yaw": 0
+		},
+		"kremlin": {
+			"ru": "Спасская башня",
+			"en": "Spasskaya Tower",
+			"lat": 55.7525,
+			"lon": 37.6214,
+			"height_m": 71,
+			"yaw": 0
+		},
+		"basil": {
+			"ru": "Храм Василия Блаженного",
+			"en": "Saint Basil's Cathedral",
+			"lat": 55.7525,
+			"lon": 37.6231,
+			"height_m": 65,
+			"yaw": 0
+		},
+		"taj": {
+			"ru": "Тадж-Махал",
+			"en": "Taj Mahal",
+			"lat": 27.1751,
+			"lon": 78.0421,
+			"height_m": 73,
+			"yaw": 0
+		},
+		"burj": {
+			"ru": "Бурдж-Халифа",
+			"en": "Burj Khalifa",
+			"lat": 25.1972,
+			"lon": 55.2744,
+			"height_m": 828,
+			"yaw": 0
+		},
+		"colosseum": {
+			"ru": "Колизей",
+			"en": "Colosseum",
+			"lat": 41.8902,
+			"lon": 12.4922,
+			"height_m": 48,
+			"yaw": 0
+		},
+		"pisa": {
+			"ru": "Пизанская башня",
+			"en": "Leaning Tower of Pisa",
+			"lat": 43.723,
+			"lon": 10.3966,
+			"height_m": 56,
+			"yaw": 0
+		},
+		"opera": {
+			"ru": "Сиднейский оперный театр",
+			"en": "Sydney Opera House",
+			"lat": -33.8568,
+			"lon": 151.2153,
+			"height_m": 65,
+			"yaw": 0
+		},
+		"redeemer": {
+			"ru": "Христос-Искупитель",
+			"en": "Christ the Redeemer",
+			"lat": -22.9519,
+			"lon": -43.2105,
+			"height_m": 38,
+			"yaw": 0
+		},
+		"cntower": {
+			"ru": "Си-Эн Тауэр",
+			"en": "CN Tower",
+			"lat": 43.6426,
+			"lon": -79.3871,
+			"height_m": 553,
+			"yaw": 0
+		},
+		"empire": {
+			"ru": "Эмпайр-стейт-билдинг",
+			"en": "Empire State Building",
+			"lat": 40.7484,
+			"lon": -73.9857,
+			"height_m": 443,
+			"yaw": 0
+		},
+		"goldengate": {
+			"ru": "Мост Золотые Ворота",
+			"en": "Golden Gate Bridge",
+			"lat": 37.8199,
+			"lon": -122.4783,
+			"height_m": 227,
+			"yaw": 0
+		}
+	}
+}

@@ -1,75 +1,50 @@
 extends Node
 ## Trees on the 3D Earth where NASA's pictures show forest (config/forest.png: the share of forest in each 0.2° cell,
-## made by tools/gen_forest.py from Blue Marble 2004 and Black Marble 2016 — no trees in the cities).
-## Built for speed close to the planet:
-##   • only around the point under the camera (radius_deg), in tiles of «tile_deg» degrees, built nearest first for
-##     at most BUDGET_MS a frame, the tiles left behind freed;
-##   • each tile is two MultiMeshes with visibility ranges (Godot's HLOD): near the camera the real model
-##     (models/tree.glb, 8.8 thousand triangles), farther a 36-triangle crown of its colour, farther still nothing;
-##   • tiles beyond the horizon are hidden (globe.faces), the frustum drops the rest off screen;
-##   • no shadows; the camera farther than «show_r» Earth radii — no trees at all.
-## The same fixed size as the buildings (globe.size_100m), children of the Earth's node — they turn with it.
+## made by pax_corporations_dev/gen_forest.py from Blue Marble 2004 and Black Marble 2016 — no trees in the cities).
+## One fixed size, larger than life so a forest is seen from the game's own zoom (config/earth.json «trees»: tree_km).
+## Built for speed:
+##   • only around the point under the camera (radius_deg), in tiles of «tile_deg» degrees, nearest first, at most
+##     BUDGET_MS a frame; the tiles left behind freed;
+##   • each tile two MultiMeshes with visibility ranges (Godot's HLOD): near the camera the real model
+##     (models/tree.glb), farther a 36-triangle crown of its colour, farther still nothing;
+##   • tiles beyond the horizon hidden, no shadows; the camera farther than «show_r» Earth radii — no trees.
+## Lives in the Earth's node (its own space, radius 1: x = cos φ sin λ, y = sin φ, z = cos φ cos λ, like the layers),
+## the trees stand on the ground (earth.surface_radius). Switched by «Слои глобуса» (trees) and the quality (eco — none).
 
-const Globe := preload("res://mods/pax_corpinc3d/src/globe/globe.gd")
-const BODY := "Земля"
-const REF_M := 100.0
+const GameApi := preload("res://mods/pax_corpinc3d/src/shared/game_api.gd")
 const CELL_DEG := 0.2
-const STEP_SEC := 0.25               # how often the tiles around the camera are looked over
-const BUDGET_MS := 3                 # tiles are built every frame for at most this long (no stutter, no long wait)
+const STEP_SEC := 0.25
+const BUDGET_MS := 3
+const EARTH_KM := 6371.0
 
 var mod: PaxMod
-var globe: Object                   # globe.gd: stage_ok, size_100m, dir_of, lat_lon_of, cam_local
 var game: PaxGame
-# Quality (settings/quality.gd; the window «3D»):
-var enabled := true
-var radius_deg := 12.0              # trees around the point under the camera, degrees
-var per_cell := 2.0                 # trees in a cell of full forest
-# Config (config/models.json «trees»):
-var height_m := 40.0
-var tile_deg := 4.0
-var near_r := 0.05
-var far_r := 0.7
-var show_r := 2.2
-var min_forest := 0.2
-var cone_color := Color(0.12, 0.27, 0.1)
-var _file := "tree.glb"
-var _map_path := "config/forest.png"
-
+var enabled := true                 # the quality (eco and off — none)
+var radius_deg := 12.0
+var per_cell := 2.0
+var cfg: Dictionary = {}
 var _map := PackedByteArray()
 var _mw := 0
 var _mh := 0
-var _tree: Dictionary = {}          # {mesh, base} — the real model, normalized to height 1; {} — not loaded yet
-var _cone: Dictionary = {}          # the far stand-in
+var _tree: Dictionary = {}          # {mesh, base}: the model, base centre at the origin, height 1
+var _crown: Dictionary = {}
 var _loaded := false
 var _holder: Node3D
-var _body: Node3D
-var _tiles: Dictionary = {}         # "i|j" -> {near, far: MultiMeshInstance3D, n: centre, a: angular radius, count}
+var _parent: Node3D
+var _tiles: Dictionary = {}         # "i|j" -> {near, far, n, a, count}
+var _queue: Array = []
 var _t := 0.0
 var _count := 0
-var _queue: Array = []              # [key, i, j] — tiles to build, the nearest first
 
 
-func setup(m: PaxMod, g: Object) -> void:
+func setup(m: PaxMod) -> void:
 	mod = m
-	globe = g
-	var cfg: Variant = m.load_json("config/models.json", {})
-	var tc: Dictionary = (cfg as Dictionary).get("trees", {}) if cfg is Dictionary and (cfg as Dictionary).get("trees") is Dictionary else {}
-	_file = str(tc.get("файл", _file))
-	_map_path = str(tc.get("map", _map_path))
-	height_m = float(tc.get("height_m", height_m))
-	tile_deg = clampf(float(tc.get("tile_deg", tile_deg)), 1.0, 30.0)
-	near_r = float(tc.get("near_r", near_r))
-	far_r = float(tc.get("far_r", far_r))
-	show_r = float(tc.get("show_r", show_r))
-	min_forest = float(tc.get("min_forest", min_forest))
-	var cc: Variant = tc.get("cone_color")
-	if cc is Array and (cc as Array).size() >= 3:
-		cone_color = Color(float(cc[0]), float(cc[1]), float(cc[2]))
-
-
-func _ready() -> void:
 	name = "PaxCorpInc3DForest"
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	var raw: Variant = GameApi.json(m, "config/earth.json", {})
+	var all: Dictionary = raw if raw is Dictionary else {}
+	cfg = all.get("trees", {}) if all.get("trees") is Dictionary else {}
+	radius_deg = float(cfg.get("radius_deg", 12.0))
 
 
 func start(g: PaxGame) -> void:
@@ -81,13 +56,12 @@ func clear() -> void:
 	if is_instance_valid(_holder):
 		_holder.queue_free()
 	_holder = null
-	_body = null
+	_parent = null
 	_tiles.clear()
 	_queue.clear()
 	_count = 0
 
 
-## Built again with the current quality (the tiles are made anew around the camera).
 func rebuild() -> void:
 	for k in _tiles.keys():
 		_free_tile(str(k))
@@ -100,59 +74,85 @@ func built_count() -> int:
 	return _count
 
 
-## The trees are on the screen now (the auto quality measures the frames only then).
-func showing() -> bool:
-	return enabled and is_instance_valid(_holder) and _holder.visible and _count > 0
+func _shown() -> bool:
+	var layers: Variant = mod.get("layers")
+	if not enabled or not bool(cfg.get("enabled", true)) or not (layers is Object) or not is_instance_valid(layers):
+		return false
+	if not bool((layers as Object).get("active")):
+		return false
+	var sw: Variant = (layers as Object).get("switches")
+	return not (sw is Object) or bool((sw as Object).call("is_on", "trees"))
 
 
 func _process(delta: float) -> void:
-	if game == null or not is_instance_valid(game.main) or globe == null:
-		return
-	var ok := enabled and bool(globe.get("stage_ok"))
-	var body := game.body_node(BODY) if ok else null
-	if body == null:
+	var t0 := Time.get_ticks_usec()
+	_process_body(delta)
+	GameApi.perf("corpinc3d.forest.process", t0)
+
+
+func _process_body(delta: float) -> void:
+	var earth: Variant = mod.get("earth")
+	var node: Variant = (earth as Object).call("node") if earth is Object and is_instance_valid(earth) else null
+	if not _shown() or not (node is Node3D):
 		if is_instance_valid(_holder):
 			_holder.visible = false
 		return
-	if body != _body or not is_instance_valid(_holder):
+	if node != _parent or not is_instance_valid(_holder):
 		clear()
-		_body = body
+		_parent = node
 		_holder = Node3D.new()
-		_holder.name = "PaxCorpInc3DForest"
-		body.add_child(_holder)
-	var cam: Vector3 = globe.call("cam_local", body)
-	if not cam.is_finite() or cam.length() > show_r:
+		_holder.name = "PaxCorpInc3DForestTrees"
+		(node as Node3D).add_child(_holder)
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var local := (node as Node3D).global_transform.affine_inverse() * cam.global_position
+	if local.length() > float(cfg.get("show_r", 2.2)):
 		_holder.visible = false
 		return
 	_holder.visible = true
 	if not _loaded:
-		_load()   # the map and both meshes — once, here, not at the mod's start
+		_load()
 		return
-	if _tree.is_empty() and _cone.is_empty():
+	if _tree.is_empty() and _crown.is_empty():
 		return
 	_t -= delta
 	if _t <= 0.0:
 		_t = STEP_SEC
-		_stream(cam)
-	_build_some(body)
+		_stream(local)
+	_build_some(node as Node3D)
 
 
-# ---------- the tiles around the camera ----------
+static func dir_of(lat: float, lon: float) -> Vector3:
+	var p := deg_to_rad(lat)
+	var l := deg_to_rad(lon)
+	return Vector3(cos(p) * sin(l), sin(p), cos(p) * cos(l))
+
+
+## A patch around n (unit), a radians wide, seen from cam (the Earth's space): not beyond the horizon.
+static func faces(n: Vector3, cam: Vector3, a: float) -> bool:
+	var d := cam.length()
+	if d <= 1.0:
+		return true
+	var horizon := acos(clampf(1.0 / d, -1.0, 1.0))
+	return acos(clampf(n.dot(cam) / d, -1.0, 1.0)) <= horizon + a + 0.03
+
 
 func _stream(cam: Vector3) -> void:
-	var sub: Vector2 = globe.call("lat_lon_of", cam)
-	var sub_dir := cam.normalized()
+	var sub := cam.normalized()
+	var sub_lat := rad_to_deg(asin(clampf(sub.y, -1.0, 1.0)))
+	var tile := clampf(float(cfg.get("tile_deg", 4.0)), 1.0, 30.0)
+	var rows := int(round(180.0 / tile))
+	var cols := int(round(360.0 / tile))
+	var half := deg_to_rad(tile) * 0.75
 	var radius := deg_to_rad(radius_deg)
-	var rows := int(round(180.0 / tile_deg))
-	var cols := int(round(360.0 / tile_deg))
-	var half := deg_to_rad(tile_deg) * 0.75   # a tile's angular radius (its half-diagonal, rounded up)
-	var want: Array = []                      # [angle, key, i, j]
-	var i0 := maxi(0, floori((sub.x - radius_deg - tile_deg + 90.0) / tile_deg))
-	var i1 := mini(rows - 1, floori((sub.x + radius_deg + tile_deg + 90.0) / tile_deg))
+	var want: Array = []
+	var i0 := maxi(0, floori((sub_lat - radius_deg - tile + 90.0) / tile))
+	var i1 := mini(rows - 1, floori((sub_lat + radius_deg + tile + 90.0) / tile))
 	for i in range(i0, i1 + 1):
 		for j in cols:
-			var c: Vector3 = globe.call("dir_of", -90.0 + (float(i) + 0.5) * tile_deg, -180.0 + (float(j) + 0.5) * tile_deg)
-			var ang := c.angle_to(sub_dir)
+			var c := dir_of(-90.0 + (float(i) + 0.5) * tile, -180.0 + (float(j) + 0.5) * tile)
+			var ang := c.angle_to(sub)
 			if ang <= radius + half:
 				want.append([ang, "%d|%d" % [i, j], i, j])
 	var keep := {}
@@ -161,7 +161,6 @@ func _stream(cam: Vector3) -> void:
 	for k in _tiles.keys():
 		if not keep.has(k):
 			_free_tile(str(k))
-	# The missing tiles, the nearest first (built by _build_some, a few every frame).
 	want.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) < float(b[0]))
 	_queue.clear()
 	for w in want:
@@ -170,27 +169,31 @@ func _stream(cam: Vector3) -> void:
 			_queue.append([str(wa[1]), int(wa[2]), int(wa[3])])
 	for k in _tiles.keys():
 		var td: Dictionary = _tiles[k]
-		var vis := Globe.faces(td["n"], cam, float(td["a"]))
+		var vis := faces(td["n"], cam, float(td["a"]))
 		for part in ["near", "far"]:
 			if is_instance_valid(td[part]):
 				(td[part] as Node3D).visible = vis
 
 
-func _build_some(body: Node3D) -> void:
+func _build_some(node: Node3D) -> void:
 	var t0 := Time.get_ticks_msec()
 	while not _queue.is_empty() and Time.get_ticks_msec() - t0 < BUDGET_MS:
 		var q: Array = _queue.pop_front()
 		if not _tiles.has(str(q[0])):
-			_make_tile(str(q[0]), int(q[1]), int(q[2]), body)
+			_make_tile(str(q[0]), int(q[1]), int(q[2]), node)
 
 
-func _make_tile(key: String, i: int, j: int, body: Node3D) -> void:
-	var lat0 := -90.0 + float(i) * tile_deg
-	var lon0 := -180.0 + float(j) * tile_deg
-	var centre: Vector3 = globe.call("dir_of", lat0 + tile_deg * 0.5, lon0 + tile_deg * 0.5)
-	var size := float(globe.get("size_100m")) * height_m / REF_M   # a tree's height in Earth radii
-	var spots: Array = []   # [position on the unit sphere, yaw, scale]
-	var n := int(round(tile_deg / CELL_DEG))
+func _make_tile(key: String, i: int, j: int, node: Node3D) -> void:
+	var tile := clampf(float(cfg.get("tile_deg", 4.0)), 1.0, 30.0)
+	var lat0 := -90.0 + float(i) * tile
+	var lon0 := -180.0 + float(j) * tile
+	var centre := dir_of(lat0 + tile * 0.5, lon0 + tile * 0.5)
+	var size := float(cfg.get("tree_km", 8.0)) / EARTH_KM   # a tree's height, Earth radii (fixed, larger than life)
+	var min_forest := float(cfg.get("min_forest", 0.2))
+	var earth: Variant = mod.get("earth")
+	var ground_ok := earth is Object and is_instance_valid(earth) and (earth as Object).has_method("surface_radius")
+	var spots: Array = []
+	var n := int(round(tile / CELL_DEG))
 	for ci in n:
 		for cj in n:
 			var lat := lat0 + (float(ci) + 0.5) * CELL_DEG
@@ -201,18 +204,20 @@ func _make_tile(key: String, i: int, j: int, body: Node3D) -> void:
 			var h := hash(Vector2i(roundi(lat * 10.0), roundi(lon * 10.0)))
 			var trees := int(floor(f * per_cell + _rnd(h, 0)))
 			for t in trees:
-				var tlat := lat + (_rnd(h, 1 + t * 4) - 0.5) * CELL_DEG
-				var tlon := lon + (_rnd(h, 2 + t * 4) - 0.5) * CELL_DEG
-				spots.append([globe.call("dir_of", tlat, tlon), _rnd(h, 3 + t * 4) * TAU, 0.75 + _rnd(h, 4 + t * 4) * 0.5])
-	var td := {"near": null, "far": null, "n": centre, "a": deg_to_rad(tile_deg) * 0.75, "count": spots.size()}
+				var d := dir_of(lat + (_rnd(h, 1 + t * 4) - 0.5) * CELL_DEG, lon + (_rnd(h, 2 + t * 4) - 0.5) * CELL_DEG)
+				var r := float((earth as Object).call("surface_radius", d)) if ground_ok else 1.0
+				spots.append([d, r, _rnd(h, 3 + t * 4) * TAU, 0.75 + _rnd(h, 4 + t * 4) * 0.5])
+	var td := {"near": null, "far": null, "n": centre, "a": deg_to_rad(tile) * 0.75, "count": spots.size()}
 	_tiles[key] = td
 	if spots.is_empty():
 		return
-	var radius_w := maxf(body.global_transform.basis.get_scale().x, 1e-6)   # the Earth's radius in world units
+	var rw := maxf(node.global_transform.basis.get_scale().x, 1e-6)   # the Earth's radius in world units
+	var near_r := float(cfg.get("near_r", 0.05))
+	var far_r := float(cfg.get("far_r", 0.7))
 	if not _tree.is_empty():
-		td["near"] = _instances(spots, _tree, size, centre, 0.0, near_r * radius_w)
-	if not _cone.is_empty():
-		td["far"] = _instances(spots, _cone, size, centre, near_r * radius_w if not _tree.is_empty() else 0.0, far_r * radius_w)
+		td["near"] = _instances(spots, _tree, size, centre, 0.0, near_r * rw)
+	if not _crown.is_empty():
+		td["far"] = _instances(spots, _crown, size, centre, near_r * rw if not _tree.is_empty() else 0.0, far_r * rw)
 	_count += spots.size()
 
 
@@ -229,8 +234,8 @@ func _instances(spots: Array, model: Dictionary, size: float, centre: Vector3, f
 		if east.length() < 0.001:
 			east = Vector3.RIGHT
 		east = east.normalized()
-		var basis := Basis(east, up, east.cross(up).normalized()).rotated(up, float(s[1])).scaled(Vector3.ONE * size * float(s[2]))
-		mm.set_instance_transform(k, Transform3D(basis, up - centre) * base)
+		var basis := Basis(east, up, east.cross(up).normalized()).rotated(up, float(s[2])).scaled(Vector3.ONE * size * float(s[3]))
+		mm.set_instance_transform(k, Transform3D(basis, up * float(s[1]) - centre) * base)
 	var mi := MultiMeshInstance3D.new()
 	mi.multimesh = mm
 	mi.position = centre
@@ -253,9 +258,6 @@ func _free_tile(key: String) -> void:
 	_tiles.erase(key)
 
 
-# ---------- data ----------
-
-## The share of forest at a point, 0..1 (the map's nearest cell).
 func _forest(lat: float, lon: float) -> float:
 	if _map.is_empty():
 		return 0.0
@@ -264,43 +266,42 @@ func _forest(lat: float, lon: float) -> float:
 	return float(_map[y * _mw + x]) / 255.0
 
 
-## A stable pseudo-random 0..1 from a cell's hash and a slot: the same trees stand in the same places every time.
 static func _rnd(h: int, slot: int) -> float:
 	return float(hash(h + slot * 7919) & 0xFFFF) / 65535.0
 
 
 func _load() -> void:
 	_loaded = true
-	var tex: Texture2D = mod.texture(_map_path)
-	var img: Image = tex.get_image() if tex != null else null
+	var img: Image = null
+	var bytes: Variant = mod.read_bytes(str(cfg.get("map", "config/forest.png")))
+	if bytes is PackedByteArray and not (bytes as PackedByteArray).is_empty():
+		img = Image.new()
+		if img.load_png_from_buffer(bytes) != OK:
+			img = null
 	if img == null or img.is_empty():
-		mod.log_warning("3D trees: no forest map %s" % _map_path)
+		mod.log_warning("3D trees: no forest map")
 		return
-	if img.is_compressed():
-		img.decompress()
 	img.convert(Image.FORMAT_L8)
 	_mw = img.get_width()
 	_mh = img.get_height()
 	_map = img.get_data()
-	var tree_mesh := _model_mesh()
-	_tree = _normalized(tree_mesh)
-	# The far stand-in: a rough round crown (36 triangles) of the model's own average colour, so the switch from
-	# the model to it and back is hardly seen.
+	var mesh := _model_mesh()
+	_tree = _normalized(mesh)
 	var crown := SphereMesh.new()
 	crown.radius = 0.42
 	crown.height = 0.84
 	crown.radial_segments = 6
 	crown.rings = 3
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = _average_colour(tree_mesh, cone_color)
+	mat.albedo_color = _average_colour(mesh, Color(0.12, 0.27, 0.1))
 	mat.roughness = 1.0
 	crown.material = mat
-	_cone = {"mesh": crown, "base": Transform3D(Basis.IDENTITY, Vector3(0, 0.58, 0))}
-	mod.log_info("3D trees: forest map %dx%d, tree model %s" % [_mw, _mh, "yes" if not _tree.is_empty() else "no (cones only)"])
+	_crown = {"mesh": crown, "base": Transform3D(Basis.IDENTITY, Vector3(0, 0.58, 0))}
+	mod.log_info("3D trees: forest map %dx%d, tree model %s" % [_mw, _mh, "yes" if not _tree.is_empty() else "no (crowns only)"])
 
 
 func _model_mesh() -> Mesh:
-	var node: Node3D = mod.model("models/" + _file)
+	var node: Node3D = mod.model("models/" + str(cfg.get("файл", cfg.get("file", "tree.glb"))))
 	if node == null:
 		return null
 	var mesh: Mesh = null
@@ -312,7 +313,6 @@ func _model_mesh() -> Mesh:
 	return mesh
 
 
-## The average colour of a mesh's first texture (its albedo × the material's colour); fallback — none.
 static func _average_colour(mesh: Mesh, fallback: Color) -> Color:
 	if mesh == null or mesh.get_surface_count() == 0:
 		return fallback
@@ -329,10 +329,9 @@ static func _average_colour(mesh: Mesh, fallback: Color) -> Color:
 		img.decompress()
 	img.resize(1, 1, Image.INTERPOLATE_BILINEAR)
 	var c := img.get_pixel(0, 0) * mat.albedo_color
-	return Color(c.r * 0.85, c.g * 0.85, c.b * 0.85)   # a crown in its own shade: a little darker than its leaves
+	return Color(c.r * 0.85, c.g * 0.85, c.b * 0.85)
 
 
-## A mesh with its base's centre at the origin and height 1: {mesh, base}; {} — none.
 static func _normalized(mesh: Mesh) -> Dictionary:
 	if mesh == null:
 		return {}

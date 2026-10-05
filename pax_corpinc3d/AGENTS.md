@@ -34,7 +34,6 @@ schemas and the game's own `data/*.json` (the source of truth for field names) a
 |---|---|
 | `core/` | the life cycle |
 | `globe/` | buildings on the 3D Earth, which model a site gets |
-| `forest/` | trees on the 3D Earth by NASA's forest map (`config/forest.png`, made by `tools/gen_forest.py` in the repository) |
 | `settings/` | the «3D» window |
 | `shared/` | shared files of the series |
 

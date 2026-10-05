@@ -1,0 +1,251 @@
+{
+	"_": "Земля HD (src/earth/earth.gd, shaders/earth*.gdshader). «maps» — карты в папке мода (равнопромежуточная развёртка, долгота −180…180 слева направо, север сверху, как у карт игры): нет файла — слой выключен. «big_maps» — большие карты (день NASA 16384×8192, ночь 12288×6144): читаются в фоновом потоке и сжимаются для видеокарты (S3TC, compress_big), пока не готовы — карта игры; map_albedo заменяет цвет Земли игры только на глобусе. «flags» — какой параметр шейдера включает слой. «earth», «clouds», «air» — параметры шейдеров Земли, облаков и свечения атмосферы (цвета — [r, g, b]). earth_segments/earth_rings — сетка сферы Земли (у игры 192×128), cloud_* — облаков (у игры 64×32), air_radius — радиус оболочки свечения в радиусах Земли. Облака при спуске камеры от clouds.far_km до near_km (км над землёй) рассеиваются: сначала уходит тонкая дымка, плотные облака тают до near_alpha.",
+	"maps": {
+		"night_map": "textures/earth/night.jpg",
+		"relief_map": "textures/earth/relief.png",
+		"water_map": "textures/earth/water.png",
+		"clouds_map": "textures/earth/clouds.jpg",
+		"borders_ids": "textures/earth/borders_ids.png",
+		"borders_dist": "textures/earth/borders_dist.png",
+		"height_map": "textures/earth/height.png",
+		"detail_map": "textures/earth/detail.png",
+		"urban_map": "textures/earth/urban.png",
+		"map_albedo": "textures/earth/day.jpg"
+	},
+	"big_maps": [
+		"map_albedo",
+		"night_map"
+	],
+	"compress_big": true,
+	"no_mipmaps": [
+		"borders_ids",
+		"borders_dist",
+		"height_map"
+	],
+	"flags": {
+		"night_map": "use_night",
+		"relief_map": "use_relief",
+		"water_map": "use_water",
+		"clouds_map": "use_cloud_shadow",
+		"borders_ids": "use_borders",
+		"height_map": "use_height_map",
+		"detail_map": "use_detail",
+		"urban_map": "use_urban"
+	},
+	"earth": {
+		"real_color": 1.0,
+		"game_city": 0.0,
+		"real_gain": 1.15,
+		"country_width": 2.0,
+		"country_alpha": 0.7,
+		"province_width": 0.6,
+		"province_alpha": 0.1,
+		"fill_alpha": 0.16,
+		"edge_glow": 0.24,
+		"edge_glow_px": 14.0,
+		"our_border": [
+			0.95,
+			0.85,
+			0.62
+		],
+		"night_gain": 2.2,
+		"proc_lights": 0.3,
+		"relief_strength": 10.0,
+		"sea_roughness": 0.45,
+		"cloud_shadow": 0.35,
+		"air_glow": 0.7,
+		"haze": 0.2,
+		"haze_inside": 0.15,
+		"sky_day": [
+			0.42,
+			0.64,
+			0.95
+		],
+		"sky_dusk": [
+			1.0,
+			0.46,
+			0.18
+		],
+		"border_color": [
+			0.9,
+			0.9,
+			0.86
+		],
+		"border_tint": 0.8,
+		"our_alpha": 0.8,
+		"border_glow": 0.0,
+		"country_far_alpha": 0.85,
+		"country_far_width": 1.8,
+		"focus_alpha": 0.85,
+		"focus_width": 2.2,
+		"height_exag": 3.5,
+		"air_thickness": 80.0,
+		"detail_km": 8.0,
+		"detail_strength": 0.22,
+		"detail_bump": 0.25,
+		"sharpen": 0.45,
+		"fields": 0.0,
+		"field_km": 4.0
+	},
+	"political": {
+		"_": "Политическая карта, как в Terra Invicta (галка в окне «Слои» — Tab, консоль inc3d political): эти параметры шейдера Земли вместо тех же из «earth», пока она включена.",
+		"fill_alpha": 0.42,
+		"edge_glow": 0.3,
+		"country_width": 2.8,
+		"country_alpha": 0.95,
+		"border_tint": 1.0,
+		"country_far_alpha": 1.0,
+		"province_alpha": 0.18
+	},
+	"clouds": {
+		"fade_near": 1.2,
+		"fade_far": 1.7,
+		"density": 0.8,
+		"near_alpha": 0.15,
+		"near_km": 1500.0,
+		"far_km": 5000.0,
+		"brightness": 1.0
+	},
+	"air": {
+		"strength": 0.3,
+		"thickness": 4.5,
+		"sky_day": [
+			0.45,
+			0.66,
+			0.95
+		],
+		"sky_strength": 1.0
+	},
+	"earth_segments": 512,
+	"earth_rings": 256,
+	"cloud_segments": 256,
+	"cloud_rings": 128,
+	"air_radius": 1.025,
+	"terrain": {
+		"_": "Земля в 3D (src/earth/terrain.gd): куб-сфера, на каждой грани chunks_per_face × chunks_per_face кусков; levels — сколько клеток по стороне куска на каждом уровне детализации (грубо → тонко); near — уровень включается, когда камера ближе, чем near × размер куска. Высоты — height_map × height_exag (раздел «earth»). Грубый уровень 32 (был 16: клетка ~78 км, и на стыке с подробным куском шла видная прямая — «шов»), средний 128 и ближе к камере (9 размеров куска), чтобы стыки уровней уходили за край обзора.",
+		"enabled": true,
+		"chunks_per_face": 8,
+		"levels": [
+			32,
+			128,
+			256
+		],
+		"near": [
+			0.0,
+			9.0,
+			3.0
+		]
+	},
+	"descent": {
+		"_": "Спуск в атмосферу (src/earth/descent.gd): у предела приближения игры (1,25 радиуса от центра) колесо ведёт камеру дальше вниз — drag_speed — скорость, с которой земля идёт за мышью при перетаскивании внизу (1 — точно под курсором); step за щелчок из 0..1 (у земли — step × step_low, чем ниже, тем медленнее), до lowest радиусов Земли над землёй; взгляд поднимается от вертикали к горизонту до horizon_pitch градусов. speed — скорость подлёта. buildings_low — во сколько раз уменьшаются здания внизу (с орбиты они нарисованы крупнее жизни, чтобы город было видно). При отдалении колесо останавливается у края (22 радиуса), где игра переходит к орбитам системы: туда — edge_clicks щелчков подряд.",
+		"enabled": true,
+		"step": 0.1,
+		"step_low": 0.12,
+		"speed": 0.45,
+		"drag_speed": 1.0,
+		"wasd_speed": 0.5,
+		"lowest": 0.055,
+		"horizon_pitch": 45.0,
+		"edge_clicks": 3,
+		"buildings_low": 1.0
+	},
+	"layers": {
+		"_": "Слои 2D-карты на 3D-Земле (src/layers/globe_layers.gd), пока 2D-карта закрыта: дороги, ж/д, ЛЭП и связь рисуются на самой земле (шейдер Земли), торговые пути, авиарейсы (дугами над землёй), фронт, бои, армии, базы, операции, промыслы, значки показателей, метки — поверх. Включаются окном игры «Слои» (Tab). refresh_s — как часто просить у игры свежие данные (с), nets_s — сети; sites_from_zoom, icons_from_zoom — с какого приближения (ширина мира в экранах, как зум 2D-карты) видны промыслы и значки.",
+		"enabled": true,
+		"refresh_s": 2.0,
+		"nets_s": 4.0,
+		"sites_from_zoom": 2.5,
+		"front": false,
+		"bases": false,
+		"window_top": 140.0,
+		"front_from_zoom": 4.0,
+		"icons_from_zoom": 3.0
+	},
+	"roads": {
+		"_": "Сети игры 3D-геометрией на земле (src/layers/roads3d.gd, shaders/roads.gdshader): дороги с насыпью, разметкой и машинами, ж/д со щебнем, шпалами, рельсами и поездами, ЛЭП на решётчатых опорах с проводами, мачты связи с огнями. Ширина и высоты — крупнее жизни, чтобы было видно с высоты спуска. width — во сколько раз дороги шире настоящих (видно с высоты); min_px — не уже стольких пикселей издали; near_below_km — ниже этой высоты камеры ближние куски строятся подробно (все дороги, опоры, мачты), near_chunks — в скольких кусках от камеры; near_step_km / far_step_km — шаг точек вдоль дороги; budget_ms — сколько мс за кадр уходит на постройку; bed_m — высота насыпи; pylon_m, pylon_km — высота и шаг опор ЛЭП; mast_m — высота мачт; traffic — машины и поезда (0 — нет).",
+		"enabled": true,
+		"min_px": 2.4,
+		"wire_px": 3.2,
+		"width": 1.8,
+		"pull": 0.012,
+		"near_below_km": 1800.0,
+		"near_chunks": 1.3,
+		"near_step_km": 2.5,
+		"far_step_km": 30.0,
+		"budget_ms": 4.0,
+		"bed_m": 60.0,
+		"pylon_m": 2500.0,
+		"pylon_km": 25.0,
+		"mast_m": 600.0,
+		"traffic": 1.0
+	},
+	"towns": {
+		"_": "Города мира зданиями (src/globe/towns.gd, config/cities.json — GeoNames, от 30 000 жителей): у каждого города дома по его размеру — столько, чтобы занять cover его застроенной площади (30 тыс. — пара домов, миллион — ~65, крупнейшие — до max_per_city), к центру плотнее и выше. Ниже show_below_km — лёгкий дом (коробка с крышей, 10 треугольников, свой цвет у каждого) во всех городах (~200 000, считаются в фоновом потоке); ниже near_below_km в near_radius_km от точки под камерой — на тех же местах маленький офис (model, упрощён до near_tris треугольников), коробки там прячутся; перестраивается, когда камера ушла на rebuild_km. building_km — ширина дома; pad_scale, pad_color — серая площадка под каждым домом. Кварталы корпораций и море не застраиваются. Города от миллиона — по настоящей застройке (config/city_layouts.json, Overture Maps): по дому в каждой застроенной клетке, самые плотные первыми, не больше layout_max; шире, где плотнее, выше, где выше здания.",
+		"enabled": true,
+		"model": "office",
+		"show_below_km": 3500.0,
+		"near_below_km": 1100.0,
+		"near_radius_km": 800.0,
+		"rebuild_km": 250.0,
+		"building_km": 2.0,
+		"cover": 0.4,
+		"max_per_city": 250,
+		"layout_max": 300,
+		"near_tris": 800,
+		"pad_scale": 2.6,
+		"pad_color": [
+			0.4,
+			0.39,
+			0.37
+		]
+	},
+	"armies": {
+		"_": "Армии на 3D-глобусе (src/layers/armies3d.gd): где стоит армия — бронемашина (models.json «humvee», длиной car_km) и три солдата («soldier», ростом soldier_km) — во много раз крупнее жизни, чтобы было видно с высоты обзора, — на кольце цвета её страны. Скелета у моделей нет: солдаты движутся целиком — один стоит на посту и оглядывается, другой наклоняется к работе, третий обходит машину дозором. Видны ниже show_below_km; размер постоянный и крупный (машина 30 км, солдат 14 км), чтобы армии было видно с высоты обзора игры и удобно воевать; модели упрощаются до soldier_tris / car_tris.",
+		"enabled": true,
+		"show_below_km": 30000.0,
+		"car_km": 80.0,
+		"soldier_km": 40.0,
+		"soldier_tris": 3000,
+		"car_tris": 4000
+	},
+	"satellites": {
+		"_": "Спутники (src/earth/satellites.gd): модель models.json «satellite» вместо спутников игры (её узел прячется, наш повторяет его место и поворот, размер — по размаху модели игры: scale в её единицах, 1.8 — корпус с двумя панелями; прячутся детали внутри узла игры, сам узел игра включает каждый кадр).",
+		"enabled": true,
+		"scale": 1.8
+	},
+	"ships": {
+		"_": "Контейнеровозы (src/layers/ships3d.gd, models.json «ship»), во много раз крупнее жизни (длина ship_km): per_route на каждом морском торговом пути игры (туда и обратно), ambient — просто в море, каждый по своему большому кругу (над сушей прячутся). speed_kmh — скорость (ускорена, как время игры). Видны ниже show_below_km; размер постоянный и крупный (60 км), чтобы суда было видно с высоты обзора игры.",
+		"enabled": true,
+		"show_below_km": 30000.0,
+		"ship_km": 110.0,
+		"per_route": 2,
+		"ambient": 70,
+		"speed_kmh": 9000.0,
+		"ship_tris": 3000
+	},
+	"planes": {
+		"_": "Самолёты на 3D-глобусе (src/layers/planes3d.gd): белые лайнеры, модель строится в коде (фюзеляж, стреловидные крылья, хвост, двигатели), во много раз крупнее жизни (размах plane_km), чтобы их было видно с высоты обзора. per_route на каждом авиамаршруте игры (караваны «самолёт» и авиарейсы карты) — туда и обратно по той же дуге, что и пунктир маршрута (lift — высота дуги в радиусах Земли); ambient — между крупнейшими городами мира. Видны ниже show_below_km. Включаются слоем «Авиарейсы».",
+		"enabled": true,
+		"show_below_km": 30000.0,
+		"plane_km": 90.0,
+		"per_route": 2,
+		"ambient": 40,
+		"speed_kmh": 30000.0,
+		"lift": 0.03,
+		"ground_lift": 0.002
+	},
+	"spin": true,
+	"trees": {
+		"_": "Деревья на 3D-Земле (src/forest/forest.gd): где на снимках NASA лес (config/forest.png — доля леса в клетке 0,2°, pax_corporations_dev/gen_forest.py из Blue Marble 2004 и Black Marble 2016; в городах деревьев нет). Размер постоянный, крупнее жизни (tree_km — высота дерева), чтобы лес было видно с высоты обзора игры. Ставятся участками по tile_deg градусов вокруг точки под камерой (radius_deg; в режиме «Максимум» — 20°); ближе near_r радиусов Земли к участку — настоящая модель (models/tree.glb), дальше до far_r — простая крона её цвета; камера дальше show_r радиусов от центра — деревьев нет. Слой «Деревья» в окне «Слои глобуса»; в режиме «Экономный» деревьев нет.",
+		"enabled": true,
+		"file": "tree.glb",
+		"map": "config/forest.png",
+		"tree_km": 8.0,
+		"tile_deg": 4.0,
+		"radius_deg": 12.0,
+		"near_r": 0.08,
+		"far_r": 1.2,
+		"show_r": 2.2,
+		"min_forest": 0.2
+	}
+}

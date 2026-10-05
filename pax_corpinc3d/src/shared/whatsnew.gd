@@ -45,7 +45,7 @@ func setup(m: PaxMod, g: PaxGame, lang_prefix: String) -> void:
 	mod = m
 	game = g
 	prefix = lang_prefix
-	var manifest: Variant = m.load_json("mod.json", {})
+	var manifest: Variant = _json(m, "mod.json", {})
 	if manifest is Dictionary:
 		_current = str((manifest as Dictionary).get("version", ""))
 		_id = str((manifest as Dictionary).get("id", lang_prefix))
@@ -95,7 +95,7 @@ func has_news() -> bool:
 
 ## The versions newer than the one seen (all of them if none was seen yet), newest first.
 func _unseen() -> Array:
-	var cfg: Variant = mod.load_json("config/whatsnew.json", {})
+	var cfg: Variant = _json(mod, "config/whatsnew.json", {})
 	var all: Array = (cfg as Dictionary).get("versions", []) if cfg is Dictionary else []
 	var s := seen()
 	var out: Array = all.filter(func(v): return s.is_empty() or newer(str(v), s))
@@ -106,7 +106,7 @@ func _unseen() -> Array:
 
 ## The mods this one recommends: [{имя, текст, есть}] (есть — installed: registered here or known by its metas).
 func recommendations() -> Array:
-	var cfg: Variant = mod.load_json("config/whatsnew.json", {})
+	var cfg: Variant = _json(mod, "config/whatsnew.json", {})
 	var list: Array = (cfg as Dictionary).get("recommended", []) if cfg is Dictionary else []
 	var reg: Dictionary = Engine.get_meta(REG, {}) if Engine.has_meta(REG) else {}
 	var out: Array = []
@@ -115,7 +115,7 @@ func recommendations() -> Array:
 			continue
 		var id := str((r as Dictionary).get("id", ""))
 		var have := reg.has(id) or (id == "pax_corporations" and Engine.has_meta("pax_corporations_api")) 			or (id == "pax_corpface" and Engine.has_meta("pax_corpface_panel"))
-		out.append({"имя": str((r as Dictionary).get("имя", id)), "текст": _t(str((r as Dictionary).get("ключ", ""))), "has_flag": have})
+		out.append({"name": str((r as Dictionary).get("name", id)), "текст": _t(str((r as Dictionary).get("ключ", ""))), "has_flag": have})
 	return out
 
 
@@ -124,7 +124,8 @@ func rec_text(key: String) -> String:
 
 
 ## The window's text for this mod (BBCode) and the line under the title. A change made after a player's message
-## carries «{игрок:NUMBER}» in its text — it becomes a 🐞 mark (yours — «по вашему сообщению»).
+## carries «{игрок:NUMBER}» in its text — it becomes a 🐞 mark (yours — «по вашему сообщению»); a report that came
+## another way (Discord) carries the player's nickname instead: «{игрок:ReD ImPeRoR}».
 func body() -> String:
 	var out := ""
 	for ver in _unseen():
@@ -147,7 +148,7 @@ func _nick() -> String:
 
 func _marks(text: String) -> String:
 	var re := RegEx.new()
-	re.compile("\\{игрок:([A-Z0-9]+)\\}")
+	re.compile("\\{игрок:([^}]+)\\}")
 	var out := text
 	for m in re.search_all(text):
 		var id := m.get_string(1)
@@ -159,18 +160,29 @@ func _marks(text: String) -> String:
 ## «From players»: everything the players sent through «Contact the developer» and what became of it, newest first
 ## (config/feedback_log.json, renewed with every update of the mods); the player's own messages are marked.
 func players_body() -> String:
-	var cfg: Variant = mod.load_json("config/feedback_log.json", {})
+	var cfg: Variant = _json(mod, "config/feedback_log.json", {})
 	var list: Array = (cfg as Dictionary).get("messages", []) if cfg is Dictionary else []
 	if list.is_empty():
 		return _t("whatsnew_players_none")
 	var me := _me()
 	var kinds := {"bug": "🐞 #Баг", "wish": "💡 #Пожелание", "praise": "👍 #Оценка/Похвала", "complaint": "👎 #Оценка/Жалоба"}
 	var out := ""
+	var reg: Dictionary = Engine.get_meta(REG, {}) if Engine.has_meta(REG) else {}
+	var installed: PackedStringArray = []
+	for id in reg.keys():
+		var o: Variant = reg[id]
+		if o is Object and is_instance_valid(o):
+			installed.append(str((o as Object).call("display_name")))
 	for i in range(list.size() - 1, -1, -1):
 		if not (list[i] is Dictionary):
 			continue
 		var r: Dictionary = list[i]
 		var st := str(r.get("s", "new"))
+		# Fixed in a mod this player does not have — not his news.
+		var fixed_in := str(r.get("ver", ""))
+		if st == "fixed" and not fixed_in.is_empty() and not installed.is_empty() \
+				and not Array(installed).any(func(n: String) -> bool: return fixed_in.begins_with(n)):
+			continue
 		var mine := str(r.get("p", "")) == me
 		out += "[b]%s[/b]  [color=#8d99a8]%s · %s[/color]%s  [color=%s]%s%s[/color]\n" % [str(kinds.get(str(r.get("k", "")), "")),
 			str(r.get("d", "")), _t("whatsnew_player_n") % (str(r.get("p", "")) + ((" (%s)" % str(r.get("n", "")).replace("[", "(")) if not str(r.get("n", "")).is_empty() else "")),
@@ -199,7 +211,7 @@ func player_id() -> String:
 ## «Memes and stories»: the players' best (config/stories.json — pictures from the mod's folder, texts), newest first.
 func stories_fill(rt: RichTextLabel) -> void:
 	rt.clear()
-	var cfg: Variant = mod.load_json("config/stories.json", {})
+	var cfg: Variant = _json(mod, "config/stories.json", {})
 	var list: Array = (cfg as Dictionary).get("histories", []) if cfg is Dictionary else []
 	rt.append_text(_t("whatsnew_stories_intro") + "\n\n")
 	if list.is_empty():
@@ -211,7 +223,7 @@ func stories_fill(rt: RichTextLabel) -> void:
 			continue
 		var r: Dictionary = list[i]
 		var mine := str(r.get("p", "")) == me
-		rt.append_text("[b]%s[/b]  [color=#8d99a8]%s · %s[/color]%s\n" % [str(r.get("заголовок", "📸")), str(r.get("d", "")),
+		rt.append_text("[b]%s[/b]  [color=#8d99a8]%s · %s[/color]%s\n" % [str(r.get("title", "📸")), str(r.get("d", "")),
 			_t("whatsnew_player_n") % str(r.get("p", "")), ("  [color=#f2c752]%s[/color]" % _t("whatsnew_yours")) if mine else ""])
 		var pic := str(r.get("picture", ""))
 		if not pic.is_empty():
@@ -225,7 +237,7 @@ func stories_fill(rt: RichTextLabel) -> void:
 
 
 func _share() -> void:
-	var cfg: Variant = mod.load_json("config/feedback.json", {})
+	var cfg: Variant = _json(mod, "config/feedback.json", {})
 	var server := str((cfg as Dictionary).get("сервер", "")).strip_edges().trim_suffix("/") if cfg is Dictionary else ""
 	if server.begins_with("https://"):
 		var nick := _nick()
@@ -234,14 +246,14 @@ func _share() -> void:
 
 ## The live list of the players' messages: the server's page (a mod may not go online itself).
 func _feed(kind: String = "") -> void:
-	var cfg: Variant = mod.load_json("config/feedback.json", {})
+	var cfg: Variant = _json(mod, "config/feedback.json", {})
 	var server := str((cfg as Dictionary).get("сервер", "")).strip_edges().trim_suffix("/") if cfg is Dictionary else ""
 	if server.begins_with("https://"):
 		mod.call("open_link", "%s/feed?l=%s&p=%s%s" % [server, "ru" if TranslationServer.get_locale().begins_with("ru") else "en", player_id(), "&k=" + kind if not kind.is_empty() else ""])
 
 
 func players_count() -> int:
-	var cfg: Variant = mod.load_json("config/feedback_log.json", {})
+	var cfg: Variant = _json(mod, "config/feedback_log.json", {})
 	return ((cfg as Dictionary).get("messages", []) as Array).size() if cfg is Dictionary else 0
 
 
@@ -506,6 +518,10 @@ func _fill_tabs() -> void:
 		_share_row.visible = _stories
 	if is_instance_valid(_feed_btn):
 		_feed_btn.visible = _players
+	# The memes are appended (append_text, pictures) and do not change «text»: the same text set again after them
+	# was ignored and the memes stayed on «From players». The field is emptied first.
+	_text.clear()
+	_text.text = ""
 	if _stories:
 		_title.text = _t("whatsnew_stories_title")
 		_sub.text = _t("whatsnew_stories_sub")
@@ -543,11 +559,11 @@ func _fill_recs() -> void:
 		card.add_theme_constant_override("separation", 2)
 		_recs.add_child(card)
 		var nm := Label.new()
-		nm.text = str(d["имя"])
+		nm.text = str(d["name"])
 		nm.add_theme_font_size_override("font_size", 14)
 		card.add_child(nm)
 		var st := Label.new()
-		st.text = _t("whatsnew_rec_have") if bool(d["has_flag"]) else _t("whatsnew_rec_find") % str(d["имя"])
+		st.text = _t("whatsnew_rec_have") if bool(d["has_flag"]) else _t("whatsnew_rec_find") % str(d["name"])
 		st.add_theme_font_size_override("font_size", 11)
 		st.add_theme_color_override("font_color", Color(0.4, 0.85, 0.6) if bool(d["has_flag"]) else Color(GOLD, 0.9))
 		st.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -593,3 +609,11 @@ func teardown() -> void:
 		var reg: Dictionary = Engine.get_meta(REG)
 		if reg.get(_id) == self:
 			reg.erase(_id)
+
+
+## A JSON file of the mod as written: game 0.24's load_json translates Russian keys and values on the way in
+## («ключ» → «key», «название» → «title_name»), and the mod's data stopped matching its code. read_text does not.
+static func _json(m: Object, relative: String, default_value: Variant = null) -> Variant:
+	var text: String = str(m.call("read_text", relative)) if is_instance_valid(m) else ""
+	var parsed: Variant = JSON.parse_string(text) if not text.is_empty() else null
+	return default_value if parsed == null else parsed

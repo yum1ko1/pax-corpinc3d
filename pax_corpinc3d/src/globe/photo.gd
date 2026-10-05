@@ -7,6 +7,7 @@ extends Node
 ## by (model, state). States: норма; кризис — darker; банкрот / заморожена — grey.
 ## Kinds without a model answer {"нет": true}: Pax Corporations then draws its own voxel picture.
 
+const GameApi := preload("res://mods/pax_corpinc3d/src/shared/game_api.gd")   # Main's methods and the mod's JSON, game 0.24
 const PX := 512                  # the photo's side, px (the map works in 256-px units: anchors are halved)
 const UNITS := 256.0
 
@@ -30,7 +31,7 @@ var _busy := false
 
 func setup(m: PaxMod) -> void:
 	mod = m
-	var cfg: Variant = m.load_json("config/models.json", {})
+	var cfg: Variant = GameApi.json(m, "config/models.json", {})
 	if cfg is Dictionary:
 		var cd: Dictionary = cfg
 		ortho = float(cd.get("camera_m", 400.0))

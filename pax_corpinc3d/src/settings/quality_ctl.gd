@@ -21,7 +21,6 @@ func _init(host: Host) -> void:
 func start() -> void:
 	auto = AutoQuality.new()
 	auto.globe = app.globe
-	auto.forest = app.forest
 	auto.on_slow = step_down
 	app.add_child(auto)
 	apply()
@@ -35,9 +34,12 @@ func apply() -> void:
 	app.globe.hq_only = bool(o["hq_only"])
 	app.globe.shadows = bool(o["shadows"])
 	app.globe.hide_far = float(o["hide_far"])
-	app.forest.enabled = on and bool(o["trees"])
-	app.forest.radius_deg = float(o["trees_deg"])
-	app.forest.per_cell = 3.0 if str(Quality.get_value(app, "quality")) == "max" else 2.0
+	var q := str(Quality.get_value(app, "quality"))
+	# The trees stay in «eco» too, only fewer and nearer: the automatic step down (auto_quality.gd) lands there when the
+	# game lags, and the forest vanished with it — players took it for a bug. Off is the layer's switch («Деревья»).
+	app.forest.enabled = on
+	app.forest.radius_deg = 20.0 if q == "max" else (8.0 if q == "eco" else 12.0)
+	app.forest.per_cell = 3.0 if q == "max" else (1.0 if q == "eco" else 2.0)
 	app.forest.rebuild()
 	if app.globe.enabled != on:
 		app.globe.enabled = on
@@ -68,7 +70,9 @@ func change(key: String, value: Variant) -> void:
 func step_down() -> void:
 	var now := str(Quality.get_value(app, "quality"))
 	var lower := Quality.lower(now)
-	if lower.is_empty():
+	# By itself it stops at «eco»: «off» took away the buildings and the roads altogether, and players did not
+	# know why — switching everything off is the player's own choice (the 3D window).
+	if lower.is_empty() or lower == "off":
 		return
 	last_auto = "%s → %s" % [now, lower]
 	Log.warn("quality", "below %d FPS: the 3D mode lowered %s" % [int(Quality.get_value(app, "auto_fps")), last_auto])
@@ -85,7 +89,6 @@ func status() -> Dictionary:
 	out["auto_fps"] = int(Quality.get_value(app, "auto_fps"))
 	out["fps"] = Engine.get_frames_per_second()
 	out["count"] = app.globe.built_count() if app.globe.enabled else 0
-	out["trees_count"] = app.forest.built_count() if app.forest.enabled else 0
 	out["last_auto"] = last_auto
 	return out
 

@@ -1,6 +1,6 @@
 extends VBoxContainer
 ## The window «3D» — the settings of Pax CorpInc3D: the quality mode (off · eco · normal · max · custom), its options
-## (how many buildings, headquarters only, shadows, hide when far, trees and how far around the camera), the automatic step down when the game lags,
+## (how many buildings, headquarters only, shadows, hide when far), the automatic step down when the game lags,
 ## and what it costs now (frames per second, buildings drawn). «?» explains in place.
 ## Talks to the mod only through its entry points (set_quality, set_option, quality_status).
 
@@ -13,8 +13,6 @@ var _limit: SpinBox
 var _hq: CheckBox
 var _shadows: CheckBox
 var _far: SpinBox
-var _trees: CheckBox
-var _trees_deg: SpinBox
 var _auto: CheckBox
 var _auto_fps: SpinBox
 var _now: Label
@@ -81,11 +79,6 @@ func _ready() -> void:
 	_far = _spin(0, 20, 0.5)
 	_option_row(_t("o_far"), _t("o_far_tip"), _far)
 	_far.value_changed.connect(func(v: float) -> void: _set_option("hide_far", v))
-	_trees = _check(_t("o_trees"), _t("o_trees_tip"))
-	_trees.toggled.connect(func(v: bool) -> void: _set_option("trees", v))
-	_trees_deg = _spin(2, 40, 1)
-	_option_row(_t("o_trees_deg"), _t("o_trees_deg_tip"), _trees_deg)
-	_trees_deg.value_changed.connect(func(v: float) -> void: _set_option("trees_deg", v))
 
 	add_child(HSeparator.new())
 	var arow := HBoxContainer.new()
@@ -103,10 +96,53 @@ func _ready() -> void:
 	_auto_fps.value_changed.connect(func(v: float) -> void: _set_option("auto_fps", int(v)))
 	arow.add_child(_auto_fps)
 
+	# The air's glow at the planet's rim («the RGB light» to some players): may be switched off.
+	var air := CheckBox.new()
+	air.text = _t("o_air")
+	air.tooltip_text = _t("o_air_tip")
+	air.focus_mode = Control.FOCUS_NONE
+	air.button_pressed = bool(mod.call("get_setting", "air_glow", true))
+	air.toggled.connect(func(v: bool) -> void:
+		var sw := _switches()
+		if sw != null:
+			sw.call("set_on", "air_glow", v)
+		else:
+			var earth: Variant = mod.get("earth")
+			if earth is Object and is_instance_valid(earth):
+				(earth as Object).call("set_air", v))
+	add_child(air)
+	# The mods' buildings and roads off the flat map (core/flat_clean.gd): they are 3D on the globe.
+	var flat := CheckBox.new()
+	flat.text = _t("o_flat")
+	flat.tooltip_text = _t("o_flat_tip")
+	flat.focus_mode = Control.FOCUS_NONE
+	flat.button_pressed = bool(mod.call("get_setting", "flat_clean", true))
+	flat.toggled.connect(func(v: bool) -> void:
+		var fc: Variant = mod.get("flat_clean")
+		if fc is Object and is_instance_valid(fc):
+			(fc as Object).call("set_on", v))
+	add_child(flat)
+	# Every layer of the globe — the game's and ours — in the «Слои глобуса» window (also Tab over the globe).
+	var lw := Button.new()
+	lw.text = _t("o_layers")
+	lw.tooltip_text = _t("o_layers_tip")
+	lw.focus_mode = Control.FOCUS_NONE
+	lw.pressed.connect(func() -> void:
+		var sw := _switches()
+		if sw != null:
+			sw.call("toggle_window"))
+	add_child(lw)
+
 	_now = _note("", 0.8)
 	add_child(_now)
 	add_child(_note(_t("needs" if not Engine.has_meta("pax_corporations_api") else "where"), 0.55))
 	_fill()
+
+
+func _switches() -> Object:
+	var layers: Variant = mod.get("layers")
+	var sw: Variant = (layers as Object).get("switches") if layers is Object and is_instance_valid(layers) else null
+	return sw as Object if sw is Object and is_instance_valid(sw) else null
 
 
 func _process(delta: float) -> void:
@@ -115,7 +151,7 @@ func _process(delta: float) -> void:
 		return
 	_tick = 0.5
 	var st: Dictionary = mod.call("quality_status")
-	_now.text = _t("now") % [int(st["fps"]), int(st["count"])] + "\n" + _t("now_trees") % int(st["trees_count"]) + \
+	_now.text = _t("now") % [int(st["fps"]), int(st["count"])] + \
 		("" if str(st["last_auto"]).is_empty() else "\n" + _t("now_auto") % str(st["last_auto"]))
 
 
@@ -130,8 +166,6 @@ func _fill() -> void:
 	_hq.button_pressed = bool(st["hq_only"])
 	_shadows.button_pressed = bool(st["shadows"])
 	_far.value = float(st["hide_far"])
-	_trees.button_pressed = bool(st["trees"])
-	_trees_deg.value = float(st["trees_deg"])
 	_auto.button_pressed = bool(st["auto"])
 	_auto_fps.value = int(st["auto_fps"])
 	_custom.modulate.a = 0.45 if q == "off" else 1.0
