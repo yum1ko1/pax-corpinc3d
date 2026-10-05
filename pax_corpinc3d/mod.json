@@ -1,0 +1,20 @@
+{
+	"$schema": "../../docs/modding/schemas/mod.schema.json",
+	"id": "pax_corpinc3d",
+	"name": {
+		"en": "Pax CorpInc3D",
+		"ru": "Pax CorpInc3D"
+	},
+	"version": "0.2.5",
+	"api": 1,
+	"game_version": ">=0.9.0",
+	"authors": ["Babichev Maxim"],
+	"description": {
+		"en": "3D buildings for the Pax CorpInc mods: the companies of Pax Corporations stand on the map as real 3D models — headquarters by their world rank, offices, factories, warehouses. Can be switched off for weak computers.",
+		"ru": "3D-здания для модов Pax CorpInc: компании Pax Corporations стоят на карте настоящими 3D-моделями — штаб-квартиры по месту в мире, офисы, заводы, склады. Отключается для слабых компьютеров."
+	},
+	"tags": ["graphics", "3d"],
+	"depends": [],
+	"load_after": ["pax_corporations", "pax_corpface", "pax_corptimizer"],
+	"entry": "main.gd"
+}

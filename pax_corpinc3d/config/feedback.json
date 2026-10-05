@@ -1,0 +1,4 @@
+{
+	"_": "Связь с разработчиком (src/feedback.gd): «сервер» — адрес Cloudflare Worker разработчика (https://…workers.dev, код в pax_corporations_dev/feedback_worker). Он принимает сообщение из ссылки и публикует его через бота. Пустой — отправка выключена.",
+	"сервер": "https://pax-feedback.mbklicku.workers.dev"
+}

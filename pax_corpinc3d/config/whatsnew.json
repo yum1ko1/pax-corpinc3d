@@ -1,0 +1,33 @@
+{
+	"_": "Версии для окна «Что нового» (src/whatsnew.gd, общее для модов автора), новые сверху. Тексты — в data/lang: <префикс>whatsnew_<версия через _> и …_title.",
+	"versions": [
+		"0.2.5",
+		"0.2.4",
+		"0.2.3",
+		"0.2.2",
+		"0.2.1",
+		"0.2.0",
+		"0.1.4",
+		"0.1.3",
+		"0.1.2",
+		"0.1.1",
+		"0.1.0"
+	],
+	"recommended": [
+		{
+			"id": "pax_corporations",
+			"имя": "Pax Corporations",
+			"ключ": "rec_corporations"
+		},
+		{
+			"id": "pax_corpface",
+			"имя": "Pax Corpface",
+			"ключ": "rec_corpface"
+		},
+		{
+			"id": "pax_corptimizer",
+			"имя": "Pax Corptimizer",
+			"ключ": "rec_corptimizer"
+		}
+	]
+}
