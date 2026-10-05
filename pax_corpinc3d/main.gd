@@ -1,12 +1,14 @@
 extends PaxMod
 ## Pax CorpInc3D — the 3D objects of the Pax CorpInc mods. Now: the companies' buildings of Pax Corporations as real
 ## 3D models on the 3D Earth (src/globe.gd: models/*.glb, config/models.json; the sites from Pax Corporations'
-## api.sites_3d). photo.gd keeps which model a site gets. Without Pax Corporations it does nothing.
+## api.sites_3d; without Pax Corporations no buildings) and trees where NASA's pictures show forest (src/forest/forest.gd,
+## config/forest.png). photo.gd keeps which model a site gets.
 ## Settings (its window «3D», settings/panel_3d.gd): the quality mode off | eco | normal | max | custom, its options,
 ## the automatic step down when the game lags (settings/quality_ctl.gd). Console: inc3d on|off|eco|normal|max.
 
 const Photo := preload("res://mods/pax_corpinc3d/src/globe/photo.gd")
 const Globe := preload("res://mods/pax_corpinc3d/src/globe/globe.gd")
+const Forest := preload("res://mods/pax_corpinc3d/src/forest/forest.gd")
 const WhatsNew := preload("res://mods/pax_corpinc3d/src/shared/whatsnew.gd")
 const Panel3D := preload("res://mods/pax_corpinc3d/src/settings/panel_3d.gd")   # the window «3D»
 # The parts of the mod's work, each its own object (src/<feature>/*_ctl.gd, each holds «app» — this object).
@@ -18,6 +20,7 @@ const META := &"pax_corpinc3d"
 
 var photo: Photo
 var globe: Globe                     # the buildings on the 3D Earth (globe.gd)
+var forest: Forest                   # the trees on the 3D Earth (forest/forest.gd)
 var whatsnew: WhatsNew
 var game: PaxGame
 

@@ -21,6 +21,9 @@ func _mod_loaded() -> void:
 	app.globe = Host.Globe.new()
 	app.globe.setup(app, app.photo)
 	app.add_child(app.globe)
+	app.forest = Host.Forest.new()
+	app.forest.setup(app, app.globe)
+	app.add_child(app.forest)
 	app.quality_ctl.start()
 	Pax.register_command("inc3d", func(args: PackedStringArray) -> String:
 		if args.size() > 0 and args[0] in ["on", "off"]:
@@ -38,6 +41,8 @@ func _mod_unloaded() -> void:
 		Engine.remove_meta(Host.META)
 	if app.globe != null:
 		app.globe.clear()
+	if app.forest != null:
+		app.forest.clear()
 	_tell_corporations()
 	if app.whatsnew != null:
 		app.whatsnew.teardown()
@@ -47,6 +52,7 @@ func _mod_unloaded() -> void:
 func _world_ready(g: PaxGame) -> void:
 	app.game = g
 	app.globe.start(g)
+	app.forest.start(g)
 	app.quality_ctl.apply()
 	var panel := Host.Panel3D.new()
 	panel.mod = app

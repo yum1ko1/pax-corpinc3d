@@ -13,6 +13,10 @@ const BODY := "Земля"
 const REF_M := 100.0
 const CITY_DEG := 0.5
 const AFTER_INTRO := 3.0            # seconds after the game's opening flight before anything is built
+# The buildings are cut into tiles of this many degrees, each its own MultiMesh: the camera's frustum and the horizon
+# (_cull) drop whole tiles instead of drawing every building of the world every frame.
+const TILE_DEG := 10.0
+const CULL_SEC := 0.2
 
 var mod: PaxMod
 var photo: Object                   # photo.gd: which model a site gets (model_for)
@@ -28,7 +32,7 @@ var size_100m := 0.004              # a 100 m building, in Earth radii (exaggera
 var _holder: Node3D
 var _body: Node3D
 var _meshes: Dictionary = {}        # model id -> {mesh, base: Transform3D, h: metres, foot: width / height}
-var _mm: Dictionary = {}            # model id -> MultiMeshInstance3D
+var _parts: Array = []              # [{mi: MultiMeshInstance3D, n: tile centre (unit), a: tile's angular radius}]
 var _ver := -1
 var _conv := -1
 var _t := 0.0
@@ -40,6 +44,10 @@ var _turn := {}                     # {target, start, applied, wait}
 # The game's opening flight to the player's country (Main.заставка): nothing is loaded, built or turned while it runs
 # and for AFTER_INTRO seconds after — the heavy models loaded in the middle of the flight crashed the game.
 var _calm := AFTER_INTRO
+var _cull_t := 0.0
+## The 3D objects may stand on the Earth now: no opening flight, the map closed, the camera at the home planet.
+## The trees (forest/forest.gd) follow it too.
+var stage_ok := false
 
 
 func setup(m: PaxMod, ph: Object) -> void:
@@ -68,7 +76,7 @@ func clear() -> void:
 	if is_instance_valid(_holder):
 		_holder.queue_free()
 	_holder = null
-	_mm.clear()
+	_parts.clear()
 	_ver = -1
 	_count = 0
 
@@ -79,6 +87,7 @@ func _api() -> Object:
 
 
 func _process(delta: float) -> void:
+	stage_ok = false
 	if game == null or not is_instance_valid(game.main):
 		return
 	if _intro():
@@ -94,6 +103,7 @@ func _process(delta: float) -> void:
 	var mapv: Variant = game.main.get("полит_карта")
 	var map_open := mapv is CanvasLayer and (mapv as CanvasLayer).visible
 	_follow_map(api, map_open, delta)
+	stage_ok = not map_open and game.focused_body() == game.home_body()
 	if not enabled or api == null:
 		if is_instance_valid(_holder):
 			_holder.visible = false
@@ -107,9 +117,13 @@ func _process(delta: float) -> void:
 		_holder = Node3D.new()
 		_holder.name = "PaxCorpInc3DCity"
 		body.add_child(_holder)
-	_holder.visible = not map_open and game.focused_body() == game.home_body() and not _too_far(body)
+	_holder.visible = stage_ok and not _too_far(body)
 	if not _holder.visible:
 		return
+	_cull_t -= delta
+	if _cull_t <= 0.0:
+		_cull_t = CULL_SEC
+		_cull(body)
 	_t += delta
 	var ver := int(api.call("sites_version"))
 	if ver != _ver and _t >= 0.5:
@@ -121,6 +135,50 @@ func _process(delta: float) -> void:
 ## The game's opening flight is on the screen.
 func _intro() -> bool:
 	return is_instance_valid(game.main.get("заставка"))
+
+
+## Only the tiles that can be seen: the back of the planet (beyond the horizon) is not drawn at all — the frustum
+## alone would keep it, it is in front of the camera behind the Earth.
+func _cull(body: Node3D) -> void:
+	var cam := cam_local(body)
+	if not cam.is_finite():
+		return
+	for p in _parts:
+		var pd: Dictionary = p
+		if is_instance_valid(pd["mi"]):
+			(pd["mi"] as Node3D).visible = faces(pd["n"], cam, float(pd["a"]))
+
+
+## The camera in the Earth's own space (the Earth's radius is 1), INF — no camera.
+func cam_local(body: Node3D) -> Vector3:
+	var cam := game.camera() if game != null else null
+	if cam == null or body == null:
+		return Vector3.INF
+	return body.global_transform.affine_inverse() * cam.global_position
+
+
+## A patch of the surface around n (unit), a radians wide around it, can be seen from cam (the Earth's space): it is
+## not beyond the horizon. Tall things stick out above it a little — a small margin.
+static func faces(n: Vector3, cam: Vector3, a: float) -> bool:
+	var d := cam.length()
+	if d <= 1.0:
+		return true
+	var horizon := acos(clampf(1.0 / d, -1.0, 1.0))
+	var ang := acos(clampf(n.dot(cam) / d, -1.0, 1.0))
+	return ang <= horizon + a + 0.03
+
+
+## A direction on the Earth's node from latitude and longitude (the game's own convention, found once).
+func dir_of(lat: float, lon: float) -> Vector3:
+	_fit_convention()
+	return _dir(lat, lon)
+
+
+## Latitude and longitude of a direction on the Earth's node.
+func lat_lon_of(v: Vector3) -> Vector2:
+	_fit_convention()
+	var n := v.normalized()
+	return Vector2(rad_to_deg(asin(clampf(n.y, -1.0, 1.0))), _lon_of(n))
 
 
 ## The buildings are shown now (the auto quality measures the frames only then).
@@ -180,10 +238,10 @@ func _build(api: Object) -> bool:
 			_mesh(id)
 			return false
 		sites.append([id, lat, lon])
-	for mi in _mm.values():
-		if is_instance_valid(mi):
-			(mi as Node).queue_free()
-	_mm.clear()
+	for p in _parts:
+		if is_instance_valid((p as Dictionary)["mi"]):
+			((p as Dictionary)["mi"] as Node).queue_free()
+	_parts.clear()
 	_fit_convention()
 	var cities := {}
 	for site in sites:
@@ -219,6 +277,7 @@ func _build(api: Object) -> bool:
 		east = east.normalized()
 		var north := up.cross(east).normalized()
 		var cells := _grid(list.size())
+		var tile := "%d|%d" % [floori((float(cd["lat"]) / n + 90.0) / TILE_DEG), floori((float(cd["lon"]) / n + 180.0) / TILE_DEG)]
 		for i in list.size():
 			var id: String = list[i]
 			var info: Dictionary = _meshes[id]
@@ -230,25 +289,42 @@ func _build(api: Object) -> bool:
 			e2 = e2.normalized()
 			var basis := Basis(e2, pos, e2.cross(pos).normalized())
 			var k := size_100m * float(info["h"]) / REF_M
-			if not by_model.has(id):
-				by_model[id] = []
-			(by_model[id] as Array).append(Transform3D(basis.scaled(Vector3.ONE * k), pos) * (info["base"] as Transform3D))
+			var bk := id + "#" + tile
+			if not by_model.has(bk):
+				by_model[bk] = {"id": id, "xfs": [], "pos": []}
+			((by_model[bk] as Dictionary)["xfs"] as Array).append(Transform3D(basis.scaled(Vector3.ONE * k), pos) * (info["base"] as Transform3D))
+			((by_model[bk] as Dictionary)["pos"] as Array).append(pos)
 	_count = 0
-	for id in by_model.keys():
-		var xfs: Array = by_model[id]
+	var models := {}
+	for bk in by_model.keys():
+		var part: Dictionary = by_model[bk]
+		var xfs: Array = part["xfs"]
+		# The tile's node stands at its centre: the transforms relative to it, its angular size for the horizon.
+		var centre := Vector3.ZERO
+		for p in part["pos"]:
+			centre += p as Vector3
+		centre = centre.normalized()
+		var a := 0.0
+		for p in part["pos"]:
+			a = maxf(a, centre.angle_to(p as Vector3))
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
-		mm.mesh = (_meshes[id] as Dictionary)["mesh"]
+		mm.mesh = (_meshes[str(part["id"])] as Dictionary)["mesh"]
 		mm.instance_count = xfs.size()
 		for j in xfs.size():
-			mm.set_instance_transform(j, xfs[j])
+			var xf: Transform3D = xfs[j]
+			xf.origin -= centre
+			mm.set_instance_transform(j, xf)
 		var mi := MultiMeshInstance3D.new()
 		mi.multimesh = mm
+		mi.position = centre
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_holder.add_child(mi)
-		_mm[id] = mi
+		_parts.append({"mi": mi, "n": centre, "a": a})
+		models[part["id"]] = true
 		_count += xfs.size()
-	mod.log_info("3D globe: %d buildings in %d cities, %d models" % [_count, cities.size(), _mm.size()])
+	_cull_t = 0.0
+	mod.log_info("3D globe: %d buildings in %d cities, %d models, %d tiles" % [_count, cities.size(), models.size(), _parts.size()])
 	return true
 
 

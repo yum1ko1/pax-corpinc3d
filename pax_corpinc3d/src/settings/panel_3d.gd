@@ -1,6 +1,6 @@
 extends VBoxContainer
 ## The window «3D» — the settings of Pax CorpInc3D: the quality mode (off · eco · normal · max · custom), its options
-## (how many buildings, headquarters only, shadows, hide when far), the automatic step down when the game lags,
+## (how many buildings, headquarters only, shadows, hide when far, trees and how far around the camera), the automatic step down when the game lags,
 ## and what it costs now (frames per second, buildings drawn). «?» explains in place.
 ## Talks to the mod only through its entry points (set_quality, set_option, quality_status).
 
@@ -13,6 +13,8 @@ var _limit: SpinBox
 var _hq: CheckBox
 var _shadows: CheckBox
 var _far: SpinBox
+var _trees: CheckBox
+var _trees_deg: SpinBox
 var _auto: CheckBox
 var _auto_fps: SpinBox
 var _now: Label
@@ -71,14 +73,19 @@ func _ready() -> void:
 	add_child(_custom)
 	_limit = _spin(0, 20000, 50)
 	_option_row(_t("o_limit"), _t("o_limit_tip"), _limit)
-	_limit.value_changed.connect(func(v: float) -> void: _set("limit", int(v)))
+	_limit.value_changed.connect(func(v: float) -> void: _set_option("limit", int(v)))
 	_hq = _check(_t("o_hq"), _t("o_hq_tip"))
-	_hq.toggled.connect(func(v: bool) -> void: _set("hq_only", v))
+	_hq.toggled.connect(func(v: bool) -> void: _set_option("hq_only", v))
 	_shadows = _check(_t("o_shadows"), _t("o_shadows_tip"))
-	_shadows.toggled.connect(func(v: bool) -> void: _set("shadows", v))
+	_shadows.toggled.connect(func(v: bool) -> void: _set_option("shadows", v))
 	_far = _spin(0, 20, 0.5)
 	_option_row(_t("o_far"), _t("o_far_tip"), _far)
-	_far.value_changed.connect(func(v: float) -> void: _set("hide_far", v))
+	_far.value_changed.connect(func(v: float) -> void: _set_option("hide_far", v))
+	_trees = _check(_t("o_trees"), _t("o_trees_tip"))
+	_trees.toggled.connect(func(v: bool) -> void: _set_option("trees", v))
+	_trees_deg = _spin(2, 40, 1)
+	_option_row(_t("o_trees_deg"), _t("o_trees_deg_tip"), _trees_deg)
+	_trees_deg.value_changed.connect(func(v: float) -> void: _set_option("trees_deg", v))
 
 	add_child(HSeparator.new())
 	var arow := HBoxContainer.new()
@@ -89,11 +96,11 @@ func _ready() -> void:
 	_auto.tooltip_text = _t("o_auto_tip")
 	_auto.focus_mode = Control.FOCUS_NONE
 	_auto.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_auto.toggled.connect(func(v: bool) -> void: _set("auto", v))
+	_auto.toggled.connect(func(v: bool) -> void: _set_option("auto", v))
 	arow.add_child(_auto)
 	_auto_fps = _spin(10, 60, 1)
 	_auto_fps.suffix = "FPS"
-	_auto_fps.value_changed.connect(func(v: float) -> void: _set("auto_fps", int(v)))
+	_auto_fps.value_changed.connect(func(v: float) -> void: _set_option("auto_fps", int(v)))
 	arow.add_child(_auto_fps)
 
 	_now = _note("", 0.8)
@@ -108,7 +115,7 @@ func _process(delta: float) -> void:
 		return
 	_tick = 0.5
 	var st: Dictionary = mod.call("quality_status")
-	_now.text = _t("now") % [int(st["fps"]), int(st["count"])] + \
+	_now.text = _t("now") % [int(st["fps"]), int(st["count"])] + "\n" + _t("now_trees") % int(st["trees_count"]) + \
 		("" if str(st["last_auto"]).is_empty() else "\n" + _t("now_auto") % str(st["last_auto"]))
 
 
@@ -123,13 +130,15 @@ func _fill() -> void:
 	_hq.button_pressed = bool(st["hq_only"])
 	_shadows.button_pressed = bool(st["shadows"])
 	_far.value = float(st["hide_far"])
+	_trees.button_pressed = bool(st["trees"])
+	_trees_deg.value = float(st["trees_deg"])
 	_auto.button_pressed = bool(st["auto"])
 	_auto_fps.value = int(st["auto_fps"])
 	_custom.modulate.a = 0.45 if q == "off" else 1.0
 	_filling = false
 
 
-func _set(key: String, value: Variant) -> void:
+func _set_option(key: String, value: Variant) -> void:
 	if _filling:
 		return
 	mod.call("set_option", key, value)
