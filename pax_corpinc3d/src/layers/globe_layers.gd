@@ -798,7 +798,7 @@ func _draw_flights() -> void:
 
 ## The airports' codes (IATA) with a plane sign, close in: the large ones first, no label over another.
 func _draw_airports(zoom: float) -> void:
-	if airports == null or zoom < float(cfg.get("airports_from_zoom", 3.0)):
+	if airports == null or zoom < float(cfg.get("airports_from_zoom", 7.0)):
 		return
 	var font := _canvas.get_theme_default_font()
 	var placed: Array = []

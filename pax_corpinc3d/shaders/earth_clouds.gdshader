@@ -12,6 +12,9 @@ uniform vec3 sun_dir = vec3(0.0, 0.0, 1.0);
 uniform float atmosphere : hint_range(0.0, 1.0) = 0.30;   // the game's: no air — no clouds
 uniform float atmo_visible : hint_range(0.0, 1.0) = 1.0;
 uniform float density : hint_range(0.0, 2.0) = 1.0;
+uniform float haze_cut : hint_range(0.0, 1.0) = 0.3;    // below this the clouds' map is clear sky (the thin haze covered
+                                                        // half the planet as a white veil — players found it too thick)
+uniform float max_alpha : hint_range(0.0, 1.0) = 0.7;   // even the thickest cloud lets the ground show a little
 uniform float near_fade : hint_range(0.0, 1.0) = 1.0;   // earth.gd: 0 close to the ground — the clouds give way
 uniform float brightness : hint_range(0.0, 2.0) = 1.0;
 uniform vec3 dusk : source_color = vec3(1.0, 0.55, 0.30);
@@ -48,8 +51,8 @@ void fragment() {
 	float alt_km = (length(eye) - 1.0) * 6371.0;
 	// Coming down from far_km to near_km the clouds break up: the thin haze goes first, the thick thins out.
 	float high = smoothstep(near_km, far_km, alt_km);
-	float alpha = smoothstep(mix(0.5, 0.06, high), 0.85, c) * density * smoothstep(0.05, 0.35, atmosphere) * atmo_visible * near_fade;
-	alpha *= mix(near_alpha, 1.0, high);
+	float alpha = smoothstep(mix(0.6, haze_cut, high), 0.95, c) * density * smoothstep(0.05, 0.35, atmosphere) * atmo_visible * near_fade;
+	alpha = min(alpha * mix(near_alpha, 1.0, high), max_alpha);
 	if (alpha < 0.004) {
 		discard;
 	}
