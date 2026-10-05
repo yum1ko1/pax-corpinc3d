@@ -30,6 +30,7 @@ var _orig_mesh: Mesh
 var _cloud: MeshInstance3D
 var _cloud_mat: ShaderMaterial
 var _game_clouds: Array = []        # the game's cloud shells, kept hidden while ours is on
+var _game_cloud_layers: Dictionary = {}   # instance id -> its render layers before we took them (given back)
 var _air: MeshInstance3D
 var _air_mat: ShaderMaterial
 var _check := 0.0
@@ -464,6 +465,11 @@ func _attach() -> void:
 	# scene's background they glowed violet and orange on the night side.
 	var cl: Variant = V.pick(body, ["облака", "clouds"])
 	var shells := _find_clouds(node)
+	# Game 0.24: the shells hang straight under Main (add_child in its body making) — looked for there too.
+	if game != null and is_instance_valid(game.main):
+		for ch in game.main.get_children():
+			if ch is MeshInstance3D and _is_cloud_shell(ch as MeshInstance3D) and not shells.has(ch):
+				shells.append(ch)
 	if cl is MeshInstance3D and is_instance_valid(cl) and not shells.has(cl):
 		shells.append(cl)
 	if shells.size() != _game_clouds.size():
@@ -579,9 +585,12 @@ func _follow() -> void:
 	if is_instance_valid(_air) and sun is Vector3:
 		_air_mat.set_shader_parameter("sun_dir", sun)
 		_air_mat.set_shader_parameter("atmo_visible", float(_mat.get_shader_parameter("atmo_visible")) if _mat.get_shader_parameter("atmo_visible") != null else 1.0)
+	# The game shows its cloud shell again every frame (Main: «облака.visible = узел.visible»), and when it ran after
+	# us its clouds lay over ours. Its render layers it never touches: with none, no camera draws the shell.
 	for g in _game_clouds:
-		if is_instance_valid(g) and (g as Node3D).visible:
-			(g as Node3D).visible = false
+		if is_instance_valid(g) and g is VisualInstance3D and (g as VisualInstance3D).layers != 0:
+			_game_cloud_layers[(g as Object).get_instance_id()] = (g as VisualInstance3D).layers
+			(g as VisualInstance3D).layers = 0
 	_fade_clouds()
 	if is_instance_valid(_cloud) and is_instance_valid(_node):
 		# The clouds drift slowly round the axis; the sun of the Earth's space in the shell's own.
@@ -751,9 +760,10 @@ func restore() -> void:
 	if is_instance_valid(_cloud):
 		_cloud.queue_free()
 	for g in _game_clouds:
-		if is_instance_valid(g):
-			(g as Node3D).visible = true
+		if is_instance_valid(g) and g is VisualInstance3D:
+			(g as VisualInstance3D).layers = int(_game_cloud_layers.get((g as Object).get_instance_id(), 1))
 	_game_clouds = []
+	_game_cloud_layers.clear()
 	if is_instance_valid(_air):
 		_air.queue_free()
 	if is_instance_valid(_terrain):
