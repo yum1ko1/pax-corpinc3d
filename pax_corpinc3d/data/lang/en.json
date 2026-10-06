@@ -226,5 +226,9 @@
 	"pax_corpinc3d_whatsnew_1_1_0_title": "landmarks, regions, the turning Earth",
 	"pax_corpinc3d_whatsnew_1_1_0": "• 15 famous landmarks on the Earth: the Eiffel Tower, the pyramids, the Statue of Liberty, the Kremlin, the Taj Mahal and more.\n• A second click on the chosen country — a ring animation and the map of its regions, with details on hover.\n• Rails and power lines run between real cities.\n• The Earth turns with the game's time: a turn a day.\n• Countries lightly tinted — the borders show better.\n• The poles can be seen from above; a click on the Earth no longer jumps to a satellite.\n• The atmosphere's glow can be switched off in the «3D» window.",
 	"pax_corpinc3d_whatsnew_1_5_1_title": "real sunlight",
-	"pax_corpinc3d_whatsnew_1_5_1": "• Light on the Earth as in life: a low sun is dimmer and redder (its light crosses the atmosphere), the line between day and night is soft, the land looks rough and the sea shows the sun's path.\n• The Earth's shader is faster: needless work on every pixel removed."
+	"pax_corpinc3d_whatsnew_1_5_1": "• Light on the Earth as in life: a low sun is dimmer and redder (its light crosses the atmosphere), the line between day and night is soft, the land looks rough and the sea shows the sun's path.\n• The Earth's shader is faster: needless work on every pixel removed.",
+	"pax_corpinc3d_o_experimental": "Experimental: armies, ships, jets, airports, city blocks",
+	"pax_corpinc3d_o_experimental_tip": "These 3D parts are not yet confirmed in game 0.24, so they are off. Switch on to try: if you see them, tell the author; if not, send the console's «inc3d check» and «inc3d cube» output.",
+	"pax_corpinc3d_whatsnew_1_7_2_title": "no building hitches, the untried behind a switch",
+	"pax_corpinc3d_whatsnew_1_7_2": "• The companies' buildings are no longer rebuilt on every recompute of the economy — the 0.3–0.8 s hitches every couple of seconds are gone.\n• Armies, ships, jets, airports and city blocks are not yet confirmed in game 0.24 and are off: the «Experimental» switch of the 3D window turns them on."
 }

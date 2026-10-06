@@ -45,6 +45,7 @@ var _body: Node3D
 var _meshes: Dictionary = {}        # model id -> {mesh, base: Transform3D, h: metres, foot: width / height}
 var _mm: Dictionary = {}            # model id -> MultiMeshInstance3D
 var _ver := -1
+var _sites_sig := 0                 # the hash of the sites the buildings were made from (built again only when it changes)
 var _conv := -1
 var _t := 0.0
 var _count := 0
@@ -80,6 +81,7 @@ func start(g: PaxGame) -> void:
 	clear()
 	game = g
 	_ver = -1
+	_sites_sig = 0   # the buildings go: made again whatever the sites
 
 
 func clear() -> void:
@@ -88,6 +90,7 @@ func clear() -> void:
 	_holder = null
 	_mm.clear()
 	_ver = -1
+	_sites_sig = 0   # the buildings go: made again whatever the sites
 	_count = 0
 
 
@@ -131,7 +134,15 @@ func _process_body(delta: float) -> void:
 	if ver != _ver and _t >= 0.5:
 		_t = 0.0
 		_ver = ver
-		_build(api)
+		# Pax Corporations' version grows with every recompute of its economy (prices, capitalisations — every second or
+		# two with time running), not only when the sites change: every company's building and its city were built
+		# anew each time (270–770 ms frames in the lag probe at 1 600 km). Built again only when the sites themselves
+		# (their kind, frame, sector, state, place, company) are not the same.
+		var sites: Array = api.call("sites_3d")
+		var sig := hash(sites)
+		if sig != _sites_sig:
+			_sites_sig = sig
+			_build(api, sites)
 
 
 ## The world's cities (towns.gd) in the holder, made once per holder; config/earth.json «towns», config/cities.json,
@@ -327,6 +338,7 @@ func rebuild() -> void:
 
 func rebuild_timed() -> void:
 	_ver = -1
+	_sites_sig = 0
 
 
 func built_count() -> int:
@@ -360,7 +372,7 @@ func _pick(sites: Array) -> Array:
 
 
 ## The sites from Pax Corporations as cities; every building placed once (the size never changes).
-func _build(api: Object) -> void:
+func _build(api: Object, sites: Array = []) -> void:
 	for mi in _mm.values():
 		if is_instance_valid(mi):
 			(mi as Node).queue_free()
@@ -368,7 +380,7 @@ func _build(api: Object) -> void:
 	_fit_convention()
 	var cities := {}
 	var built: Array = []
-	for r in _pick(api.call("sites_3d") as Array):
+	for r in _pick(sites if not sites.is_empty() else api.call("sites_3d") as Array):
 		var d: Dictionary = r
 		var id := str(photo.call("model_for", str(d.get("k", "")), str(d.get("f", "")), str(d.get("s", ""))))
 		if id.is_empty():
@@ -475,6 +487,10 @@ func _build(api: Object) -> void:
 			picks.append([pos * (_ground(pos) + k * 0.5), k * 0.6, str(list[i][1])])   # centre, reach, company
 			pads.append(Transform3D(basis.scaled(Vector3.ONE * step), pos * (_ground(pos) + k * 0.004)))
 		# The city round the companies: blocks, houses, parks; the blocks join the cells (streets, towns.gd's gap).
+		# The city blocks, houses and parks round the companies: not yet seen in game 0.24 — with the «experimental»
+		# switch only (setting experimental_3d).
+		if not bool(mod.get_setting("experimental_3d", false)):
+			continue
 		var fab := _fabric.build(up, east, north, step, cells, size_100m * scale_k * 0.5, 0.35 if hq_only else 1.0, ground_cb, water_cb)
 		cells.append_array(fab["blocks"])
 		pads.append_array(fab["pads"])

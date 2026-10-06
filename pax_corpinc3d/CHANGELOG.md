@@ -1,5 +1,11 @@
 # Pax CorpInc3D — история версий
 
+## 1.7.2 — без рывков зданий, непроверенное — по галочке
+
+- globe.gd: Pax Corporations' sites_version is its db.version — it grows with every recompute of the economy, not only when the sites change; every company's building with its city (blocks, houses, parks, the airports and water round them) was built anew each time: frames of 270–770 ms every 1–2 s at ~1 600 km in the lag probe. Now built again only when hash(sites_3d) changes (_sites_sig; reset by rebuild(), start(), clear()).
+- По разбору 6 октября (notes/План.md, шаг 4): не подтверждённое в игре — по галочке «Экспериментальное» окна 3D (настройка experimental_3d, выкл.): армии, корабли, самолёты, аэропорты (globe_layers.gd скрывает их узлы — скрытые не работают) и кварталы вокруг компаний (globe.gd не строит city_fabric).
+
+
 ## 1.7.1 — проверка в игре
 
 - src/core/self_check.gd: «inc3d check» (камера игры и вьюпорта, узел Земли, для армий/кораблей/самолётов/аэропортов/дорог/деревьев/зданий — в сцене ли, родитель, видимость, число копий, первая копия в кадре и расстояние, visibility_range, custom_aabb) и «inc3d cube» (кубы 300 км под узлом Земли и под узлом армий на 60 с).

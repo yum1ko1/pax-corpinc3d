@@ -253,11 +253,16 @@ func _place_roads(on: bool) -> void:
 		if ht != _roads_ground:
 			_roads_ground = ht
 			roads.set_ground(ht as Texture2D, float((earth as Object).call("height_exag")))
+	# The 3D armies, ships, jets and airports are not yet seen working in game 0.24 (notes/Статус.md): shown only with
+	# the «experimental» switch of the 3D window (setting experimental_3d); hidden they skip their work.
+	var trial := bool(mod.get_setting("experimental_3d", false))
 	for n in [armies, ships, planes, airports]:
 		if n != null and (n as Node).get_parent() != parent:
 			if (n as Node).get_parent() != null:
 				(n as Node).get_parent().remove_child(n)
 			parent.add_child(n)
+		if n != null and (n as Node3D).visible != trial:
+			(n as Node3D).visible = trial
 
 
 ## The armies to show: the map's list where the game still fills it, else read from the game's armies (0.24).

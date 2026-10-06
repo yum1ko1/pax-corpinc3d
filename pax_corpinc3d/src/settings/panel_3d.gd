@@ -96,6 +96,18 @@ func _ready() -> void:
 	_auto_fps.value_changed.connect(func(v: float) -> void: _set_option("auto_fps", int(v)))
 	arow.add_child(_auto_fps)
 
+	# The parts not yet seen working in game 0.24 (notes/Статус.md): off by default, one switch to try them.
+	var exp3d := CheckBox.new()
+	exp3d.text = _t("o_experimental")
+	exp3d.tooltip_text = _t("o_experimental_tip")
+	exp3d.focus_mode = Control.FOCUS_NONE
+	exp3d.button_pressed = bool(mod.call("get_setting", "experimental_3d", false))
+	exp3d.toggled.connect(func(v: bool) -> void:
+		mod.call("set_setting", "experimental_3d", v)
+		var globe: Variant = mod.get("globe")
+		if globe is Object and is_instance_valid(globe):
+			(globe as Object).call("rebuild"))   # the city blocks round the companies come or go
+	add_child(exp3d)
 	# The air's glow at the planet's rim («the RGB light» to some players): may be switched off.
 	var air := CheckBox.new()
 	air.text = _t("o_air")
