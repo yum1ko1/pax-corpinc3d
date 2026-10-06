@@ -4,6 +4,7 @@ extends RefCounted
 
 const Host := preload("res://mods/pax_corpinc3d/main.gd")
 const Log := preload("res://mods/pax_corpinc3d/src/shared/log.gd")
+const SelfCheck := preload("res://mods/pax_corpinc3d/src/core/self_check.gd")
 
 var app: Host   # the host: its modules and data
 
@@ -50,6 +51,10 @@ func _mod_loaded() -> void:
 	Pax.register_command("inc3d", func(args: PackedStringArray) -> String:
 		if args.size() > 0 and args[0] == "probe":
 			return _probe()
+		if args.size() > 0 and args[0] == "check":
+			return SelfCheck.report(app)
+		if args.size() > 0 and args[0] == "cube":
+			return SelfCheck.cubes(app)
 		if args.size() > 0 and args[0] == "layers":
 			return "3D layers: " + app.layers.diag() + ", trees %d" % app.forest.built_count()
 		if args.size() > 0 and args[0] == "political":
@@ -61,7 +66,7 @@ func _mod_loaded() -> void:
 			app.quality_ctl.choose(args[0])
 		var st := app.quality_ctl.status()
 		return "Pax CorpInc3D: mode %s, buildings on the globe %d, %d FPS" % [str(st["quality"]), int(st["count"]), int(st["fps"])],
-		"inc3d [on|off|eco|normal|max|probe|political|layers] — Pax CorpInc3D: the 3D buildings' mode; probe — the game's names the 3D layers read; layers — what the 3D layers see (armies, ships, planes)")
+		"inc3d [on|off|eco|normal|max|probe|political|layers|check|cube] — Pax CorpInc3D: the 3D buildings' mode; probe — the game's names the 3D layers read; layers — what the 3D layers see (armies, ships, planes); check — every 3D part in the scene against the camera; cube — test blocks under the camera")
 	Pax.register_command("earth", func(args: PackedStringArray) -> String:
 		if args.size() > 0 and args[0] in ["on", "off"]:
 			app.earth.set_enabled(args[0] == "on")
