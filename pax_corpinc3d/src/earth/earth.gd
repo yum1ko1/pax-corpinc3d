@@ -30,6 +30,10 @@ var _orig_mesh: Mesh
 var _cloud: MeshInstance3D
 var _cloud_mat: ShaderMaterial
 var _game_clouds: Array = []        # the game's cloud shells, kept hidden while ours is on
+var front_on := false                    # the front drawn along the borders here (globe_layers.gd then draws no strokes)
+var _front_t := 0.0
+var _night_mat: ShaderMaterial          # the night over our 3D things (shaders/night.gdshader)
+var _night_t := 0.0
 var _game_cloud_layers: Dictionary = {}   # instance id -> its render layers before we took them (given back)
 var _air: MeshInstance3D
 var _air_mat: ShaderMaterial
@@ -43,6 +47,7 @@ var show_zones := true             # the economic zones' tint («Слои гло
 var show_clouds := true            # our cloud shell («Слои глобуса»: clouds)
 var selected := ""                 # the country clicked on the globe (select_country)
 var _focus := ""                   # the country outlined on the globe (focus_country)
+var height_version := 0              # +1 when the height map came (the roads lay themselves on it again)
 var _big: Dictionary = {}           # uniform name -> BigMap being read on a worker thread (config «big_maps»)
 var _orig_albedo: Variant = null    # the game's own colour map, given back on restore()
 
@@ -50,24 +55,41 @@ var _orig_albedo: Variant = null    # the game's own colour map, given back on r
 ## A map too big for the main thread (NASA day 16384 x 8192, night 12288 x 6144): decoded, mipmapped and compressed
 ## for the video card (S3TC: 4 bits a pixel, ~85 MB instead of ~700 MB for the day map) on a worker thread; the
 ## game's own map stays until it is ready.
+## Every map is read here now (the small ones decoded and mipmapped on the main thread froze the game at the start);
+## a .dds baked beforehand (tools/bake_dds.gd: compressed, with its mipmaps) is only read — the first load took
+## minutes of decoding, mipmapping and compressing the 16K day map.
 class BigMap extends RefCounted:
 	var bytes: PackedByteArray
 	var ext := ""
 	var compress := true
+	var mipmaps := true
 	var file := ""
 	var task := -1
 	var img: Image
+	var ms := 0
 
 	func run() -> void:
+		var t0 := Time.get_ticks_msec()
 		var im := Image.new()
-		var err := im.load_png_from_buffer(bytes) if ext == "png" else im.load_jpg_from_buffer(bytes)
+		var err := OK
+		if ext == "dds":
+			err = im.load_dds_from_buffer(bytes)
+		elif ext == "png":
+			err = im.load_png_from_buffer(bytes)
+		elif ext == "webp":
+			err = im.load_webp_from_buffer(bytes)
+		else:
+			err = im.load_jpg_from_buffer(bytes)
 		bytes = PackedByteArray()
 		if err != OK or im.is_empty():
 			return
-		im.generate_mipmaps()
-		if compress:
-			im.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
+		if ext != "dds":
+			if mipmaps and not im.has_mipmaps():
+				im.generate_mipmaps()
+			if compress:
+				im.compress(Image.COMPRESS_S3TC, Image.COMPRESS_SOURCE_SRGB)
 		img = im
+		ms = Time.get_ticks_msec() - t0
 
 
 func setup(m: PaxMod) -> void:
@@ -392,6 +414,10 @@ func _process_body(delta: float) -> void:
 	if _zones_t <= 0.0:
 		_zones_t = 3.0
 		_update_zones()
+	_front_t -= delta
+	if _front_t <= 0.0:
+		_front_t = 1.0
+		_update_front()
 	# The game gives the planet its own shader back now and then (the menu, the choice screen): put ours back on the
 	# very next frame, not in half a second — the rim blinked between the game's violet one and ours.
 	var reverted := is_instance_valid(_mat) and _mat.shader != _shader
@@ -587,6 +613,7 @@ func _follow() -> void:
 		_air_mat.set_shader_parameter("atmo_visible", float(_mat.get_shader_parameter("atmo_visible")) if _mat.get_shader_parameter("atmo_visible") != null else 1.0)
 	# The game shows its cloud shell again every frame (Main: «облака.visible = узел.visible»), and when it ran after
 	# us its clouds lay over ours. Its render layers it never touches: with none, no camera draws the shell.
+	_night(sun)
 	for g in _game_clouds:
 		if is_instance_valid(g) and g is VisualInstance3D and (g as VisualInstance3D).layers != 0:
 			_game_cloud_layers[(g as Object).get_instance_id()] = (g as VisualInstance3D).layers
@@ -602,6 +629,54 @@ func _follow() -> void:
 		var av: Variant = _mat.get_shader_parameter("atmosphere")
 		if av != null:
 			_cloud_mat.set_shader_parameter("atmosphere", float(av))
+
+
+## The front from the flat map's own material (region_front, use_front: the game sets them in its map's
+## показать_фронт, by province id) into the ground's shader: the front pulses along the real borders.
+func _update_front() -> void:
+	if not is_instance_valid(_mat) or _mat.shader != _shader or game == null or not is_instance_valid(game.main):
+		front_on = false
+		return
+	var map: Variant = game.main.get("полит_карта")
+	var mm: Variant = V.prop(map as Object, V.MAP["material"]) if map is Object else null
+	var tex: Variant = (mm as ShaderMaterial).get_shader_parameter("region_front") if mm is ShaderMaterial else null
+	var use: Variant = (mm as ShaderMaterial).get_shader_parameter("use_front") if mm is ShaderMaterial else null
+	var layers: Variant = mod.get("layers")
+	var sw: Variant = (layers as Object).get("switches") if layers is Object and is_instance_valid(layers) else null
+	var wanted := not (sw is Object) or bool((sw as Object).call("is_on", "front"))
+	front_on = tex is Texture2D and use != null and float(use) > 0.5
+	if front_on and wanted:
+		_mat.set_shader_parameter("region_front", tex)
+	_mat.set_shader_parameter("use_front", 1.0 if front_on and wanted else 0.0)
+
+
+## The night over our 3D things: one material, its sun and the planet's place set every frame; every second the things
+## under the Earth's node without a shader of their own (trees, houses, buildings, armies, ships, jets, airports — not
+## the ground, the roads, the clouds, the air: they know the night themselves) get it as their overlay.
+func _night(sun: Variant) -> void:
+	if not is_instance_valid(_node) or not (sun is Vector3):
+		return
+	if _night_mat == null:
+		var sh: Shader = mod.shader("shaders/night.gdshader")
+		if sh == null:
+			return
+		_night_mat = ShaderMaterial.new()
+		_night_mat.shader = sh
+		_night_mat.render_priority = 3
+	_night_mat.set_shader_parameter("planet_inv", Projection(_node.global_transform.affine_inverse()))
+	_night_mat.set_shader_parameter("sun_dir", sun)
+	_night_t -= get_process_delta_time()
+	if _night_t > 0.0:
+		return
+	_night_t = 1.0
+	for n in _node.find_children("*", "GeometryInstance3D", true, false):
+		var gi := n as GeometryInstance3D
+		if gi.material_overlay != null or gi.material_override is ShaderMaterial:
+			continue
+		if gi is MeshInstance3D and (gi as MeshInstance3D).mesh != null and (gi as MeshInstance3D).mesh.get_surface_count() > 0 \
+				and (gi as MeshInstance3D).mesh.surface_get_material(0) is ShaderMaterial:
+			continue
+		gi.material_overlay = _night_mat
 
 
 ## Coming close the clouds give way (they covered the land the camera came down to see): full from «fade_far»
@@ -655,30 +730,21 @@ func _load_maps() -> void:
 		if not have.has(dir):
 			have[dir] = mod.list_files(dir)
 	var big: Array = cfg.get("big_maps", [])
+	var s3tc := RenderingServer.has_os_feature("s3tc")
 	for key in maps.keys():
 		var file := str(maps[key])
-		if not (file.get_file() in (have[file.get_base_dir()] as PackedStringArray)):
+		var files: PackedStringArray = have[file.get_base_dir()]
+		if not (file.get_file() in files):
 			continue   # the map is not in the mod (yet): that layer stays off
-		if str(key) in big:
-			_start_big(str(key), file)
-			continue
-		var t: Texture2D = mod.texture(file)
-		if t == null:
-			continue
-		var img := t.get_image()
-		if img == null:
-			continue
-		if img.is_compressed():
-			img.decompress()
-		if not img.has_mipmaps() and not (str(key) in (cfg.get("no_mipmaps", []) as Array)):
-			img.generate_mipmaps()   # ids and the border distance are read exactly, no mipmaps
-		_tex[str(key)] = ImageTexture.create_from_image(img)
-		if str(key) == "height_map":
-			_height = img
-		mod.log_info("Earth HD: %s %dx%d" % [file, img.get_width(), img.get_height()])
+		# A baked .dds beside a big map (S3TC: the video cards of PCs and Macs read it as it is).
+		var dds := file.get_basename() + ".dds"
+		if str(key) in big and s3tc and dds.get_file() in files:
+			file = dds
+		var exact := str(key) in (cfg.get("no_mipmaps", []) as Array)   # ids and the border distance: read exactly
+		_start_big(str(key), file, str(key) in big, not exact)
 
 
-func _start_big(key: String, file: String) -> void:
+func _start_big(key: String, file: String, is_big: bool = true, mipmaps: bool = true) -> void:
 	if _big.has(key):
 		return   # already being read on a worker thread: a second job would drop the first one under its thread
 	var job := BigMap.new()
@@ -687,7 +753,8 @@ func _start_big(key: String, file: String) -> void:
 		return
 	job.ext = file.get_extension().to_lower()
 	job.file = file
-	job.compress = bool(cfg.get("compress_big", true)) and RenderingServer.has_os_feature("s3tc")
+	job.mipmaps = mipmaps
+	job.compress = is_big and bool(cfg.get("compress_big", true)) and RenderingServer.has_os_feature("s3tc")
 	if Engine.has_meta(&"pax_threads") and not bool(Engine.get_meta(&"pax_threads")):
 		job.run()   # Pax Corptimizer switched the threads off: here and now
 		job.task = WorkerThreadPool.add_task(func() -> void: pass)
@@ -708,7 +775,11 @@ func _poll_big() -> void:
 			mod.log_warning("Earth HD: %s could not be read" % job.file)
 			continue
 		_tex[str(key)] = ImageTexture.create_from_image(job.img)
-		mod.log_info("Earth HD: %s %dx%d%s" % [job.file, job.img.get_width(), job.img.get_height(), " (S3TC)" if job.img.is_compressed() else ""])
+		if str(key) == "height_map":
+			_height = job.img
+			height_version += 1
+		mod.log_info("Earth HD: %s %dx%d%s, %d ms on a worker thread" % [job.file, job.img.get_width(), job.img.get_height(),
+			" (S3TC)" if job.img.is_compressed() else "", job.ms])
 		if is_instance_valid(_mat) and _mat.shader == _shader:
 			_set_maps(_mat, [key])
 
@@ -764,6 +835,10 @@ func restore() -> void:
 			(g as VisualInstance3D).layers = int(_game_cloud_layers.get((g as Object).get_instance_id(), 1))
 	_game_clouds = []
 	_game_cloud_layers.clear()
+	if is_instance_valid(_node) and _night_mat != null:
+		for n in _node.find_children("*", "GeometryInstance3D", true, false):
+			if (n as GeometryInstance3D).material_overlay == _night_mat:
+				(n as GeometryInstance3D).material_overlay = null
 	if is_instance_valid(_air):
 		_air.queue_free()
 	if is_instance_valid(_terrain):

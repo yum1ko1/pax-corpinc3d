@@ -7,7 +7,7 @@ extends RefCounted
 
 const ORDER := ["off", "eco", "normal", "max"]
 const PRESETS := {
-	"eco": {"limit": 250, "hq_only": true, "shadows": false, "hide_far": 4.0},
+	"eco": {"limit": 250, "hq_only": true, "shadows": false, "hide_far": 0.0},
 	"normal": {"limit": 1500, "hq_only": false, "shadows": false, "hide_far": 0.0},
 	"max": {"limit": 0, "hq_only": false, "shadows": true, "hide_far": 0.0},
 }

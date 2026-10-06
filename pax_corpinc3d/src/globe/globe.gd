@@ -469,7 +469,7 @@ func _build(api: Object) -> void:
 			# On the ground: Earth HD raises the ground by the real heights (earth.gd surface_radius); a little sunk, so a
 			# building on a slope has no gap under its downhill side.
 			var foot := _ground(pos) - k * 0.08
-			(by_model[id] as Array).append(Transform3D(basis.scaled(Vector3.ONE * k), pos * foot) * (info["base"] as Transform3D))
+			(by_model[id] as Array).append(Transform3D(basis.scaled(Vector3.ONE * k), pos * foot))   # × base below
 			# Grey ground under the cell (the whole cell: the blocks join, the streets run over them) — the companies'
 			# quarters no longer stand on grass.
 			picks.append([pos * (_ground(pos) + k * 0.5), k * 0.6, str(list[i][1])])   # centre, reach, company
@@ -487,25 +487,91 @@ func _build(api: Object) -> void:
 	if not houses.is_empty():
 		_mm["_houses"] = _houses_node(houses)
 	_count = 0
+	# Levels of detail instead of hiding (the buildings vanished from afar): by the camera's distance from the Earth's
+	# centre (config/earth.json «buildings_lod», Earth radii) — the model, then the model made lighter, then a block of
+	# its size and colour; past the last nothing (the city lights are there). The engine switches them itself.
+	var lod_cfg: Dictionary = _lod_cfg()
+	var rw := maxf(_holder.global_transform.basis.get_scale().x, 1e-6)
+	var r_full := float(lod_cfg.get("full_r", 1.35)) * rw
+	var r_lite := float(lod_cfg.get("lite_r", 1.9)) * rw
+	var r_box := float(lod_cfg.get("box_r", 4.5)) * rw
 	for id in by_model.keys():
-		var xfs: Array = by_model[id]
-		var mm := MultiMesh.new()
-		mm.transform_format = MultiMesh.TRANSFORM_3D
-		mm.mesh = (_meshes[id] as Dictionary)["mesh"]
-		mm.instance_count = xfs.size()
-		for j in xfs.size():
-			mm.set_instance_transform(j, xfs[j])
-		var mi := MultiMeshInstance3D.new()
-		mi.multimesh = mm
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		mi.visible = show_companies
-		_holder.add_child(mi)
-		_mm[id] = mi
+		var raw_xfs: Array = by_model[id]
+		var info: Dictionary = _meshes[id]
+		var base: Transform3D = info["base"]
+		var xfs: Array = raw_xfs.map(func(t: Variant) -> Transform3D: return (t as Transform3D) * base)
+		_mm[id] = _models_node(info["mesh"] as Mesh, xfs, 0.0, r_full)
+		var lite: Dictionary = mesh_lod(id, int(lod_cfg.get("lite_tris", 400)))
+		if not lite.is_empty():
+			_mm[id + "|lite"] = _models_node(lite["mesh"] as Mesh, xfs, r_full, r_lite)
+		_mm[id + "|box"] = _models_node(_block_mesh(id, info), raw_xfs, r_lite if not lite.is_empty() else r_full, r_box)
 		_count += xfs.size()
 	city_list = built
 	_picks = picks
 	cities_version += 1
 	mod.log_info("3D globe: %d buildings in %d cities, %d models, %d city houses" % [_count, cities.size(), _mm.size(), houses.size()])
+
+
+func _lod_cfg() -> Dictionary:
+	var raw: Variant = GameApi.json(mod, "config/earth.json", {})
+	var d: Variant = (raw as Dictionary).get("buildings_lod", {}) if raw is Dictionary else {}
+	return d if d is Dictionary else {}
+
+
+## One level of the buildings of a model: shown while the camera is between «from» and «to» (world units) from the
+## Earth's centre (the MultiMesh's box is the planet: its centre is the Earth's).
+func _models_node(mesh: Mesh, xfs: Array, from: float, to: float) -> MultiMeshInstance3D:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.mesh = mesh
+	mm.instance_count = xfs.size()
+	for j in xfs.size():
+		mm.set_instance_transform(j, xfs[j])
+	var mi := MultiMeshInstance3D.new()
+	mi.custom_aabb = AABB(Vector3(-1.3, -1.3, -1.3), Vector3(2.6, 2.6, 2.6))   # the planet: never culled by a stale box
+	mi.multimesh = mm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows and from <= 0.0 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.visibility_range_begin = from
+	mi.visibility_range_end = to
+	mi.visibility_range_begin_margin = from * 0.03
+	mi.visibility_range_end_margin = to * 0.03
+	mi.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+	mi.visible = show_companies
+	_holder.add_child(mi)
+	return mi
+
+
+## The far look of a model: a block of its footprint and height (its own space before «base»: the model's box), in a
+## colour of its kind — glass for the headquarters, brick for the plants, sand for the warehouses.
+func _block_mesh(id: String, info: Dictionary) -> Mesh:
+	var src: Mesh = info["mesh"]
+	var box := src.get_aabb()
+	var h := maxf(box.size.y, 1e-6)
+	var bm := BoxMesh.new()
+	bm.size = Vector3(box.size.x / h, 1.0, box.size.z / h)
+	var col := Color(0.8, 0.8, 0.78)
+	if id.begins_with("hq"):
+		col = Color(0.58, 0.66, 0.78)
+	elif id.contains("factory") or id.contains("mine"):
+		col = Color(0.62, 0.52, 0.45)
+	elif id.contains("logistics"):
+		col = Color(0.76, 0.72, 0.6)
+	var m := StandardMaterial3D.new()
+	m.albedo_color = col
+	m.roughness = 0.7
+	m.emission_enabled = true
+	m.emission = col * 0.15
+	bm.material = m
+	# Lifted by half: the block stands on the ground like the model (the model's «base» puts its foot at 0).
+	var am := ArrayMesh.new()
+	var arr := bm.get_mesh_arrays()
+	var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+	for i in v.size():
+		v[i] += Vector3(0.0, 0.5, 0.0)
+	arr[Mesh.ARRAY_VERTEX] = v
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	am.surface_set_material(0, m)
+	return am
 
 
 ## The company of the building under a point of the screen ("" — none): the building nearest to the ray from the eye,
@@ -551,6 +617,9 @@ func _pads_node(xfs: Array, col: Color = Color(0.40, 0.39, 0.37)) -> MultiMeshIn
 	for j in xfs.size():
 		mm.set_instance_transform(j, xfs[j])
 	var mi := MultiMeshInstance3D.new()
+	# The whole planet as its box: the box the engine counts from the first (all-zero) transforms went stale and
+	# the armies, ships and jets were culled as unseen in the game (the Forward+ renderer).
+	mi.custom_aabb = AABB(Vector3(-1.3, -1.3, -1.3), Vector3(2.6, 2.6, 2.6))
 	mi.multimesh = mm
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.visible = show_companies
@@ -569,6 +638,9 @@ func _houses_node(list: Array) -> MultiMeshInstance3D:
 		mm.set_instance_transform(j, (list[j] as Array)[0])
 		mm.set_instance_color(j, (list[j] as Array)[1])
 	var mi := MultiMeshInstance3D.new()
+	# The whole planet as its box: the box the engine counts from the first (all-zero) transforms went stale and
+	# the armies, ships and jets were culled as unseen in the game (the Forward+ renderer).
+	mi.custom_aabb = AABB(Vector3(-1.3, -1.3, -1.3), Vector3(2.6, 2.6, 2.6))
 	mi.multimesh = mm
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if shadows else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.visible = show_companies

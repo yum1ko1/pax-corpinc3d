@@ -736,6 +736,9 @@ func _instances(mesh: Mesh, list: Array, bit: int) -> MultiMeshInstance3D:
 	for i in list.size():
 		mm.set_instance_transform(i, list[i])
 	var mmi := MultiMeshInstance3D.new()
+	# The whole planet as its box: the box the engine counts from the first (all-zero) transforms went stale and
+	# the armies, ships and jets were culled as unseen in the game (the Forward+ renderer).
+	mmi.custom_aabb = AABB(Vector3(-1.3, -1.3, -1.3), Vector3(2.6, 2.6, 2.6))
 	mmi.multimesh = mm
 	mmi.set_meta("bit", bit)
 	return mmi

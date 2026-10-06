@@ -104,6 +104,9 @@ func _make_timed() -> void:
 	mm.mesh = _ship["mesh"]
 	mm.instance_count = count
 	_ships = MultiMeshInstance3D.new()
+	# The whole planet as its box: the box the engine counts from the first (all-zero) transforms went stale and
+	# the armies, ships and jets were culled as unseen in the game (the Forward+ renderer).
+	_ships.custom_aabb = AABB(Vector3(-1.3, -1.3, -1.3), Vector3(2.6, 2.6, 2.6))
 	_ships.multimesh = mm
 	_ships.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_ships)
@@ -112,6 +115,9 @@ func _make_timed() -> void:
 	wm.mesh = _wake_mesh()
 	wm.instance_count = count
 	_wakes = MultiMeshInstance3D.new()
+	# The whole planet as its box: the box the engine counts from the first (all-zero) transforms went stale and
+	# the armies, ships and jets were culled as unseen in the game (the Forward+ renderer).
+	_wakes.custom_aabb = AABB(Vector3(-1.3, -1.3, -1.3), Vector3(2.6, 2.6, 2.6))
 	_wakes.multimesh = wm
 	_wakes.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_wakes)

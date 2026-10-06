@@ -30,6 +30,7 @@ var _canvas: Control
 var _since := 999.0
 var _since_nets := 999.0
 var _units_t := 0.0
+var _roads_ground: Variant = null
 var _told_diag := false
 var _day := -1
 var _time := 0.0
@@ -247,6 +248,11 @@ func _place_roads(on: bool) -> void:
 		roads.set_ground((earth as Object).call("height_texture") as Texture2D, float((earth as Object).call("height_exag")))
 	if roads != null:
 		roads.set_sun((earth as Object).call("sun_dir") as Vector3)
+		# The height map comes later now (read on a worker thread): the roads are laid on it when it is there.
+		var ht: Variant = (earth as Object).call("height_texture")
+		if ht != _roads_ground:
+			_roads_ground = ht
+			roads.set_ground(ht as Texture2D, float((earth as Object).call("height_exag")))
 	for n in [armies, ships, planes, airports]:
 		if n != null and (n as Node).get_parent() != parent:
 			if (n as Node).get_parent() != null:
@@ -842,6 +848,9 @@ func _draw_lines() -> void:
 
 
 func _draw_front() -> void:
+	var earth: Variant = mod.get("earth")
+	if earth is Object and is_instance_valid(earth) and bool((earth as Object).get("front_on")):
+		return   # the ground's shader draws it along the borders (earth.gd _update_front)
 	for pair in _list("front"):
 		if pair is Array and (pair as Array).size() >= 2:
 			_polyline(_arc((pair as Array)[0], (pair as Array)[1]), Color(0.95, 0.3, 0.25, 0.45), 1.5)

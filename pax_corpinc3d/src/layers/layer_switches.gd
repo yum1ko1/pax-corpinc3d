@@ -12,7 +12,7 @@ extends CanvasLayer
 ## [group, [[key, default]…]] — the order of the window.
 const GROUPS := [
 	["nets", [["roads", true], ["rail", true], ["power", true], ["comms", false]]],
-	["war", [["armies", true], ["armies3d", true], ["battles", true], ["front", false], ["bases", false]]],
+	["war", [["armies", true], ["armies3d", true], ["battles", true], ["front", true], ["bases", false]]],
 	["trade", [["trade", true], ["flights", true], ["airports", true], ["ships", true]]],
 	["economy", [["sites", true], ["health", false], ["education", false], ["safety", false], ["corruption", false],
 		["comms_icons", false], ["power_icons", false]]],

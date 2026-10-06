@@ -195,6 +195,9 @@ func _make() -> void:
 	mm.mesh = _mesh
 	mm.instance_count = count
 	_planes = MultiMeshInstance3D.new()
+	# The whole planet as its box: the box the engine counts from the first (all-zero) transforms went stale and
+	# the armies, ships and jets were culled as unseen in the game (the Forward+ renderer).
+	_planes.custom_aabb = AABB(Vector3(-1.3, -1.3, -1.3), Vector3(2.6, 2.6, 2.6))
 	_planes.name = "Jets"
 	_planes.multimesh = mm
 	_planes.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

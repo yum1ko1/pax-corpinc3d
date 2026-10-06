@@ -61,6 +61,13 @@ uniform sampler2D zone_pal : filter_nearest, repeat_disable;
 uniform float use_zones = 0.0;
 uniform float zone_alpha : hint_range(0.0, 1.0) = 0.38;
 uniform float zone_line_px : hint_range(0.0, 8.0) = 2.4;
+// The front (earth.gd from the flat map's own material: region_front — R 1 for a province on the front line, by id):
+// where two front provinces of different owners meet, their border pulses red — along the border, as the game's map
+// draws it, not as straight strokes between the provinces' middles.
+uniform sampler2D region_front : filter_nearest, repeat_disable;
+uniform float use_front = 0.0;
+uniform vec3 front_color : source_color = vec3(1.0, 0.16, 0.10);
+uniform float front_width : hint_range(0.0, 10.0) = 3.2;
 uniform vec3 sel_color = vec3(0.0);
 uniform float sel_on : hint_range(0.0, 1.0) = 0.0;
 uniform vec3 sel_line : source_color = vec3(0.55, 0.95, 1.0);
@@ -394,6 +401,17 @@ void fragment() {
 				vec3 lc = ours ? our_border : mix(border_color, mix(pa.rgb, pb.rgb, 0.5), border_tint);
 				col = mix(col, lc, line);
 				pol_light += lc * line * border_glow;
+				if (use_front > 0.5) {
+					ivec2 fs = textureSize(region_front, 0);
+					float fr_a = (ia < fs.x) ? texelFetch(region_front, ivec2(ia, 0), 0).r : 0.0;
+					float fr_b = (ib < fs.x) ? texelFetch(region_front, ivec2(ib, 0), 0).r : 0.0;
+					if (fr_a > 0.5 && fr_b > 0.5) {
+						float pulse = 0.55 + 0.45 * (0.5 + 0.5 * sin(TIME * 4.2));
+						float fl = (1.0 - smoothstep(front_width * 0.5, front_width * 0.5 + 1.2, dpx)) * pulse;
+						col = mix(col, front_color, fl * 0.95);
+						pol_light += front_color * fl * 0.5;
+					}
+				}
 				// The chosen country: a clear outline on its side of the border, a soft light inside it along the edge.
 				if (focus_on > 0.0) {
 					bool fa_in = own_a && distance(pa.rgb, focus_color) < 0.002;

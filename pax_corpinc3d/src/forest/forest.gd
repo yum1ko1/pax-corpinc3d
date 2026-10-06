@@ -8,6 +8,8 @@ extends Node
 ##   • each tile two MultiMeshes with visibility ranges (Godot's HLOD): near the camera the real model
 ##     (models/tree.glb), farther a 36-triangle crown of its colour, farther still nothing;
 ##   • tiles beyond the horizon hidden, no shadows; the camera farther than «show_r» Earth radii — no trees.
+## No tree in the water: config/water.png (seas and lakes every 0.05°, tools/gen_water.py), the provinces' map (0 —
+## the sea), the height map's sea level.
 ## Lives in the Earth's node (its own space, radius 1: x = cos φ sin λ, y = sin φ, z = cos φ cos λ, like the layers),
 ## the trees stand on the ground (earth.surface_radius). Switched by «Слои глобуса» (trees) and the quality (eco — none).
 
@@ -70,6 +72,30 @@ func rebuild() -> void:
 	_t = 0.0
 
 
+var _ids: Image
+var _height_seen := -1
+var _ground_seen := false
+var _water := PackedByteArray()
+var _ww := 0
+var _wh := 0
+
+
+func _wet(d: Vector3, r: float, ground_ok: bool) -> bool:
+	if _ww > 0:
+		var wx := clampi(int(fposmod(atan2(d.x, d.z) / TAU + 0.5, 1.0) * _ww), 0, _ww - 1)
+		var wy := clampi(int(acos(clampf(d.y, -1.0, 1.0)) / PI * _wh), 0, _wh - 1)
+		if _water[wy * _ww + wx] > 127:
+			return true
+	if _ids != null:
+		var w := _ids.get_width()
+		var h := _ids.get_height()
+		var x := clampi(int(fposmod(atan2(d.x, d.z) / TAU + 0.5, 1.0) * w), 0, w - 1)
+		var y := clampi(int(acos(clampf(d.y, -1.0, 1.0)) / PI * h), 0, h - 1)
+		var c := _ids.get_pixel(x, y)
+		return roundi(c.r * 255.0) + roundi(c.g * 255.0) * 256 <= 0
+	return ground_ok and r <= 1.0000005
+
+
 func built_count() -> int:
 	return _count
 
@@ -114,6 +140,13 @@ func _process_body(delta: float) -> void:
 	if not _loaded:
 		_load()
 		return
+	# The ground came (the height map is read on a worker thread): the trees stand on it again.
+	var hv := int((earth as Object).get("height_version")) if earth is Object else 0
+	var ground_now := (earth as Object).call("height_texture") != null if earth is Object else false
+	if hv != _height_seen or ground_now != _ground_seen:
+		_height_seen = hv
+		_ground_seen = ground_now
+		rebuild()
 	if _tree.is_empty() and _crown.is_empty():
 		return
 	_t -= delta
@@ -192,6 +225,10 @@ func _make_tile(key: String, i: int, j: int, node: Node3D) -> void:
 	var min_forest := float(cfg.get("min_forest", 0.2))
 	var earth: Variant = mod.get("earth")
 	var ground_ok := earth is Object and is_instance_valid(earth) and (earth as Object).has_method("surface_radius")
+	# Water under a tree: the provinces' map (earth.gd ids_image: 0 — sea and lakes), else the height map's sea level.
+	# A cell of forest.png is 0.2° (~20 km): on a coast or by a lake half its trees stood in the water.
+	if _ids == null and earth is Object and is_instance_valid(earth) and (earth as Object).has_method("ids_image"):
+		_ids = (earth as Object).call("ids_image") as Image
 	var spots: Array = []
 	var n := int(round(tile / CELL_DEG))
 	for ci in n:
@@ -206,6 +243,8 @@ func _make_tile(key: String, i: int, j: int, node: Node3D) -> void:
 			for t in trees:
 				var d := dir_of(lat + (_rnd(h, 1 + t * 4) - 0.5) * CELL_DEG, lon + (_rnd(h, 2 + t * 4) - 0.5) * CELL_DEG)
 				var r := float((earth as Object).call("surface_radius", d)) if ground_ok else 1.0
+				if _wet(d, r, ground_ok):
+					continue
 				spots.append([d, r, _rnd(h, 3 + t * 4) * TAU, 0.75 + _rnd(h, 4 + t * 4) * 0.5])
 	var td := {"near": null, "far": null, "n": centre, "a": deg_to_rad(tile) * 0.75, "count": spots.size()}
 	_tiles[key] = td
@@ -285,6 +324,15 @@ func _load() -> void:
 	_mw = img.get_width()
 	_mh = img.get_height()
 	_map = img.get_data()
+	# The water mask (config/water.png, tools/gen_water.py: seas and lakes every 0.05°): no tree stands in it.
+	var wb: Variant = mod.read_bytes(str(cfg.get("water", "config/water.png")))
+	if wb is PackedByteArray and not (wb as PackedByteArray).is_empty():
+		var wi := Image.new()
+		if wi.load_png_from_buffer(wb) == OK and not wi.is_empty():
+			wi.convert(Image.FORMAT_L8)
+			_ww = wi.get_width()
+			_wh = wi.get_height()
+			_water = wi.get_data()
 	var mesh := _model_mesh()
 	_tree = _normalized(mesh)
 	var crown := SphereMesh.new()

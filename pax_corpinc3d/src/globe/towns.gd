@@ -299,6 +299,9 @@ func _multi(mesh: Mesh, count: int, buf: PackedFloat32Array) -> MultiMeshInstanc
 	mm.instance_count = count
 	mm.buffer = buf
 	var mi := MultiMeshInstance3D.new()
+	# The whole planet as its box: the box the engine counts from the first (all-zero) transforms went stale and
+	# the armies, ships and jets were culled as unseen in the game (the Forward+ renderer).
+	mi.custom_aabb = AABB(Vector3(-1.3, -1.3, -1.3), Vector3(2.6, 2.6, 2.6))
 	mi.multimesh = mm
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
@@ -381,6 +384,9 @@ func _build_near_timed(under: Vector3) -> void:
 	for i in xfs.size():
 		mm.set_instance_transform(i, xfs[i])
 	_near = MultiMeshInstance3D.new()
+	# The whole planet as its box: the box the engine counts from the first (all-zero) transforms went stale and
+	# the armies, ships and jets were culled as unseen in the game (the Forward+ renderer).
+	_near.custom_aabb = AABB(Vector3(-1.3, -1.3, -1.3), Vector3(2.6, 2.6, 2.6))
 	_near.multimesh = mm
 	_near.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_near)

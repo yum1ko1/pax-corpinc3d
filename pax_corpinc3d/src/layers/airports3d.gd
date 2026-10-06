@@ -168,6 +168,9 @@ func _multi(col: Color, xfs: Array) -> MultiMeshInstance3D:
 	for i in xfs.size():
 		mm.set_instance_transform(i, xfs[i])
 	var mi := MultiMeshInstance3D.new()
+	# The whole planet as its box: the box the engine counts from the first (all-zero) transforms went stale and
+	# the armies, ships and jets were culled as unseen in the game (the Forward+ renderer).
+	mi.custom_aabb = AABB(Vector3(-1.3, -1.3, -1.3), Vector3(2.6, 2.6, 2.6))
 	mi.multimesh = mm
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
