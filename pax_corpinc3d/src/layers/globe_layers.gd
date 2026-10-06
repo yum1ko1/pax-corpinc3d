@@ -176,15 +176,15 @@ func _process_body(delta: float) -> void:
 	_refresh(delta)
 	labels_on = switches.is_on("labels")
 	if armies != null:
-		armies.visible = switches.is_on("armies3d")
+		armies.visible = switches.is_on("armies3d") and _trial()
 		armies.set_units(units())
 	if ships != null:
-		ships.visible = switches.is_on("ships")
+		ships.visible = switches.is_on("ships") and _trial()
 		ships.set_caravans(_list("caravans"), func(c: Dictionary) -> bool: return V.is_kind(str(V.field(c, "вид", "")), "корабль"))
 	if airports != null:
-		airports.visible = switches.is_on("airports")
+		airports.visible = switches.is_on("airports") and _trial()
 	if planes != null:
-		planes.visible = switches.is_on("flights")
+		planes.visible = switches.is_on("flights") and _trial()
 		planes.set_routes(_air_routes())
 	_canvas.queue_redraw()
 
@@ -255,14 +255,17 @@ func _place_roads(on: bool) -> void:
 			roads.set_ground(ht as Texture2D, float((earth as Object).call("height_exag")))
 	# The 3D armies, ships, jets and airports are not yet seen working in game 0.24 (notes/Статус.md): shown only with
 	# the «experimental» switch of the 3D window (setting experimental_3d); hidden they skip their work.
-	var trial := bool(mod.get_setting("experimental_3d", false))
 	for n in [armies, ships, planes, airports]:
 		if n != null and (n as Node).get_parent() != parent:
 			if (n as Node).get_parent() != null:
 				(n as Node).get_parent().remove_child(n)
 			parent.add_child(n)
-		if n != null and (n as Node3D).visible != trial:
-			(n as Node3D).visible = trial
+	if armies != null and (armies as Node3D).visible != _trial():
+		(armies as Node3D).visible = _trial()   # ships, jets, airports: with their layer switch too (_process_body)
+
+
+func _trial() -> bool:
+	return bool(mod.get_setting("experimental_3d", false))
 
 
 ## The armies to show: the map's list where the game still fills it, else read from the game's armies (0.24).
@@ -995,7 +998,8 @@ func _draw_labels(zoom: float) -> void:
 			var cap := bool(c["cap"])
 			var label := str(c["ru"]) if ru and not str(c["ru"]).is_empty() else str(c["en"])
 			var fs := int(clampf(10.0 + 2.4 * log(maxf(float(pop), 1.0) / 1.0e5) / log(10.0), 10.0, 18.0)) + (2 if cap else 0)
-			var tw := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			var line := _label_line(label, font, fs)
+			var tw := line.get_size().x
 			var rect := Rect2(s + Vector2(6, -fs * 0.8), Vector2(tw + 4.0, fs * 1.1)).grow(2.0)
 			var free := true
 			for r in placed:
@@ -1011,9 +1015,27 @@ func _draw_labels(zoom: float) -> void:
 			else:
 				_canvas.draw_circle(s, 2.5, Color(0, 0, 0, 0.7))
 				_canvas.draw_circle(s, 1.8, Color(1, 1, 1, 0.95))
-			var at := s + Vector2(7, fs * 0.3)
-			_canvas.draw_string_outline(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, 4, Color(0, 0, 0, 0.75))
-			_canvas.draw_string(font, at, label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1.0, 0.95, 0.85) if cap else Color(1, 1, 1, 0.92))
+			var top := s + Vector2(7, fs * 0.3) - Vector2(0.0, line.get_line_ascent())
+			line.draw_outline(_canvas.get_canvas_item(), top, 4, Color(0, 0, 0, 0.75))
+			line.draw(_canvas.get_canvas_item(), top, Color(1.0, 0.95, 0.85) if cap else Color(1, 1, 1, 0.92))
+
+
+## The cities' names shaped once (TextLine) and kept: draw_string shaped every label again in every frame, twice (the
+## outline and the text) — the most of the overlay's ~17 ms a frame in the lag probe. Key: text, size, font.
+var _lines: Dictionary = {}
+
+
+func _label_line(text: String, font: Font, fs: int) -> TextLine:
+	var key := "%s|%d|%d" % [text, fs, font.get_instance_id()]
+	var tl: Variant = _lines.get(key)
+	if tl is TextLine:
+		return tl
+	if _lines.size() > 3000:
+		_lines.clear()
+	var line := TextLine.new()
+	line.add_string(text, font, fs)
+	_lines[key] = line
+	return line
 
 
 func _star(c: Vector2, r: float, col: Color) -> void:

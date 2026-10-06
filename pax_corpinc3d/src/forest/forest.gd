@@ -8,8 +8,9 @@ extends Node
 ##   • each tile two MultiMeshes with visibility ranges (Godot's HLOD): near the camera the real model
 ##     (models/tree.glb), farther a 36-triangle crown of its colour, farther still nothing;
 ##   • tiles beyond the horizon hidden, no shadows; the camera farther than «show_r» Earth radii — no trees.
-## No tree in the water: config/water.png (seas and lakes every 0.05°, tools/gen_water.py), the provinces' map (0 —
-## the sea), the height map's sea level.
+## No tree in the water: config/water.png (seas and lakes every 0.05°, tools/gen_water.py, with the relief's and the
+## provinces' sea added — the Blue Marble picture had the murky Baltic as land), the provinces' map (0 — the sea), the
+## height map's sea level; under the trunk and at the crown's edge (_crown_wet).
 ## Lives in the Earth's node (its own space, radius 1: x = cos φ sin λ, y = sin φ, z = cos φ cos λ, like the layers),
 ## the trees stand on the ground (earth.surface_radius). Switched by «Слои глобуса» (trees) and the quality (eco — none).
 
@@ -92,8 +93,26 @@ func _wet(d: Vector3, r: float, ground_ok: bool) -> bool:
 		var x := clampi(int(fposmod(atan2(d.x, d.z) / TAU + 0.5, 1.0) * w), 0, w - 1)
 		var y := clampi(int(acos(clampf(d.y, -1.0, 1.0)) / PI * h), 0, h - 1)
 		var c := _ids.get_pixel(x, y)
-		return roundi(c.r * 255.0) + roundi(c.g * 255.0) * 256 <= 0
+		if roundi(c.r * 255.0) + roundi(c.g * 255.0) * 256 <= 0:
+			return true
+	# The 3D ground at the sea's level is water as the player sees it (the coast drawn by the height map).
 	return ground_ok and r <= 1.0000005
+
+
+## A tree's crown over the water: four points round the trunk at the crown's radius (a tree is far larger than life —
+## its crown ~3.4 km wide reached over the shore, and on an islet smaller than itself it stood in the sea).
+func _crown_wet(d: Vector3, reach: float, ground_ok: bool, earth: Variant) -> bool:
+	var east := Vector3.UP.cross(d)
+	if east.length() < 0.001:
+		return false
+	east = east.normalized()
+	var north := d.cross(east).normalized()
+	for o in [east, -east, north, -north]:
+		var p := (d + (o as Vector3) * reach).normalized()
+		var r := float((earth as Object).call("surface_radius", p)) if ground_ok else 1.0
+		if _wet(p, r, ground_ok):
+			return true
+	return false
 
 
 func built_count() -> int:
@@ -140,6 +159,12 @@ func _process_body(delta: float) -> void:
 	if not _loaded:
 		_load()
 		return
+	# The provinces' map came (read on a worker thread by earth.gd): the tiles made before it, with the water mask
+	# alone, are made again with it — the trees stood in the sea where the mask was wrong (the Baltic, the skerries).
+	if _ids == null and earth is Object and (earth as Object).has_method("ids_image"):
+		_ids = (earth as Object).call("ids_image") as Image
+		if _ids != null and not _tiles.is_empty():
+			rebuild()
 	# The ground came (the height map is read on a worker thread): the trees stand on it again.
 	var hv := int((earth as Object).get("height_version")) if earth is Object else 0
 	var ground_now := (earth as Object).call("height_texture") != null if earth is Object else false
@@ -243,7 +268,7 @@ func _make_tile(key: String, i: int, j: int, node: Node3D) -> void:
 			for t in trees:
 				var d := dir_of(lat + (_rnd(h, 1 + t * 4) - 0.5) * CELL_DEG, lon + (_rnd(h, 2 + t * 4) - 0.5) * CELL_DEG)
 				var r := float((earth as Object).call("surface_radius", d)) if ground_ok else 1.0
-				if _wet(d, r, ground_ok):
+				if _wet(d, r, ground_ok) or _crown_wet(d, size * 0.42, ground_ok, earth):
 					continue
 				spots.append([d, r, _rnd(h, 3 + t * 4) * TAU, 0.75 + _rnd(h, 4 + t * 4) * 0.5])
 	var td := {"near": null, "far": null, "n": centre, "a": deg_to_rad(tile) * 0.75, "count": spots.size()}

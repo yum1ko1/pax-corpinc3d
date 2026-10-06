@@ -132,6 +132,9 @@ func _process(_delta: float) -> void:
 	GameApi.perf("corpinc3d.roads3d.process", t0)
 
 
+var _ids_wait := 0.0
+
+
 func _process_body(_delta: float) -> void:
 	if not is_visible_in_tree() or (_levels_n == 0 and _pop.is_empty()) or game == null:
 		return
@@ -141,6 +144,11 @@ func _process_body(_delta: float) -> void:
 		if earth is Object and is_instance_valid(earth) and (earth as Object).has_method("ids_image"):
 			_ids = (earth as Object).call("ids_image") as Image
 			_has_book = _ids != null
+	# Without the provinces' map the pieces were computed on the main thread (3–3.4 s frames at the start in the lag
+	# probe): it is read on a worker thread by earth.gd and comes a little later — waited for up to 15 s.
+	if _ids == null and _threads_on() and _ids_wait < 15.0:
+		_ids_wait += _delta
+		return
 	var cam := get_viewport().get_camera_3d()
 	if cam == null:
 		return

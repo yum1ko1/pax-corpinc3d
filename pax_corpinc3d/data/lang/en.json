@@ -230,5 +230,7 @@
 	"pax_corpinc3d_o_experimental": "Experimental: armies, ships, jets, airports, city blocks",
 	"pax_corpinc3d_o_experimental_tip": "These 3D parts are not yet confirmed in game 0.24, so they are off. Switch on to try: if you see them, tell the author; if not, send the console's «inc3d check» and «inc3d cube» output.",
 	"pax_corpinc3d_whatsnew_1_7_2_title": "no building hitches, the untried behind a switch",
-	"pax_corpinc3d_whatsnew_1_7_2": "• The companies' buildings are no longer rebuilt on every recompute of the economy — the 0.3–0.8 s hitches every couple of seconds are gone.\n• Armies, ships, jets, airports and city blocks are not yet confirmed in game 0.24 and are off: the «Experimental» switch of the 3D window turns them on."
+	"pax_corpinc3d_whatsnew_1_7_2": "• The companies' buildings are no longer rebuilt on every recompute of the economy — the 0.3–0.8 s hitches every couple of seconds are gone.\n• Armies, ships, jets, airports and city blocks are not yet confirmed in game 0.24 and are off: the «Experimental» switch of the 3D window turns them on.",
+	"pax_corpinc3d_whatsnew_1_7_3_title": "no trees in the water, lighter labels",
+	"pax_corpinc3d_whatsnew_1_7_3": "• Trees no longer stand in the water: the water map is fixed (the Baltic, the skerries by Turku), and a tree is placed only where its whole crown is over land.\n• City labels on the globe are drawn much faster.\n• Roads are built in the background at the start — no freeze of several seconds."
 }
